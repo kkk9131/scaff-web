@@ -1,0 +1,22 @@
+# Node
+node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Next.js
+.next
+out
+
+# Testing
+coverage
+
+# Local env files
+.env*
+
+# Editor directories
+.vscode
+.idea
+.DS_Store
+.yoyo

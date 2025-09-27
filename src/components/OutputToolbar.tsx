@@ -68,27 +68,27 @@ export const OutputToolbar: React.FC = () => {
     <section aria-label="Output toolbar" className="flex flex-wrap items-center gap-2">
       <button
         type="button"
-        className="rounded border border-slate-300 px-3 py-1"
+        className="rounded border border-slate-600 px-3 py-1 text-slate-300 hover:bg-slate-600 transition-colors"
         onClick={() => handleExport(exportSvg, 'SVG')}
       >
         Export SVG
       </button>
       <button
         type="button"
-        className="rounded border border-slate-300 px-3 py-1"
+        className="rounded border border-slate-600 px-3 py-1 text-slate-300 hover:bg-slate-600 transition-colors"
         onClick={() => handleExport(exportJpeg, 'JPEG')}
       >
         Export JPEG
       </button>
       <button
         type="button"
-        className="rounded border border-slate-300 px-3 py-1"
+        className="rounded border border-slate-600 px-3 py-1 text-slate-300 hover:bg-slate-600 transition-colors"
         onClick={() => handleExport(exportPdf, 'PDF')}
       >
         Export PDF
       </button>
       {message && (
-        <span role="status" className="text-sm text-slate-500">
+        <span role="status" className="text-sm text-slate-400">
           {message}
         </span>
       )}

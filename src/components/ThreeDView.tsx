@@ -106,25 +106,40 @@ export const ThreeDView: React.FC = () => {
   const isJsDom = typeof navigator !== 'undefined' && navigator.userAgent.toLowerCase().includes('jsdom');
 
   return (
-    <section aria-label="3D view" className="space-y-3">
-      <Canvas data-testid="three-canvas" style={{ width: '100%', height: 240 }}>
-        {!isJsDom && (
-          <Suspense fallback={null}>
-            <WireframeScene segments={segments} />
-          </Suspense>
-        )}
-      </Canvas>
-      <div data-testid="three-summary" className="space-y-1 text-sm text-slate-700">
-        {result.meshes.map((mesh) => (
-          <div key={mesh.floorId}>
-            <strong className="font-semibold">{mesh.floorId}</strong> — height: {mesh.height}mm — roof:{' '}
-            {mesh.roof.type} (10/{mesh.roof.slopeValue})
-          </div>
-        ))}
+    <section aria-label="3D view" className="h-full flex flex-col">
+      <div className="flex-1 relative bg-gray-900 rounded-lg overflow-hidden">
+        <Canvas
+          data-testid="three-canvas"
+          style={{ width: '100%', height: '100%' }}
+          gl={{ antialias: true }}
+          dpr={[1, 2]}
+        >
+          {!isJsDom && (
+            <Suspense fallback={null}>
+              <WireframeScene segments={segments} />
+            </Suspense>
+          )}
+        </Canvas>
       </div>
-      {result.error && (
-        <p role="alert" className="text-sm text-amber-600">{result.error}</p>
-      )}
+
+      {/* 情報パネル */}
+      <div className="absolute bottom-4 left-4 right-4 bg-slate-800/90 backdrop-blur-sm rounded-lg p-3 shadow-lg border border-slate-700">
+        <div data-testid="three-summary" className="space-y-1 text-sm text-slate-300">
+          {result.meshes.map((mesh) => (
+            <div key={mesh.floorId} className="flex items-center justify-between">
+              <span className="font-semibold" style={{ color: mesh.color }}>
+                {mesh.floorId}
+              </span>
+              <span className="text-xs text-slate-400">
+                高さ: {mesh.height}mm | 屋根: {mesh.roof.type} ({mesh.roof.slopeValue}/10)
+              </span>
+            </div>
+          ))}
+        </div>
+        {result.error && (
+          <p role="alert" className="text-sm text-amber-400 mt-2">{result.error}</p>
+        )}
+      </div>
     </section>
   );
 };

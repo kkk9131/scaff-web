@@ -16,13 +16,15 @@ export const ElevationViews: React.FC = () => {
   const result = React.useMemo(() => buildElevationData(state), [state]);
 
   return (
-    <section aria-label="Elevation views" className="space-y-4">
+    <section aria-label="Elevation views" className="h-full flex flex-col">
       {result.error && (
-        <p role="alert" className="text-sm text-amber-600">
-          {result.error}
-        </p>
+        <div className="mb-4 p-3 bg-amber-900/50 border border-amber-700 rounded-lg">
+          <p role="alert" className="text-sm text-amber-300">
+            {result.error}
+          </p>
+        </div>
       )}
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="flex-1 grid gap-6 md:grid-cols-2 xl:grid-cols-4 overflow-auto">
         {result.views.map((view) => {
           const scaleX = view.dimensionValue > 0 ? (SVG_WIDTH - MARGIN * 2) / view.dimensionValue : 1;
           const scaleY = view.totalHeight > 0 ? (SVG_HEIGHT - MARGIN * 2) / view.totalHeight : 1;
@@ -51,20 +53,25 @@ export const ElevationViews: React.FC = () => {
             <article
               key={view.direction}
               data-testid={`elevation-${view.direction}`}
-              className="space-y-3 rounded border border-slate-200 p-4"
+              className="bg-slate-800 rounded-lg border border-slate-700 shadow-sm overflow-hidden flex flex-col"
             >
-              <header className="flex items-baseline justify-between">
-                <h3 className="text-base font-semibold text-slate-700 uppercase">{view.direction}</h3>
-                <span className="text-sm text-slate-500">{view.roofLabel}</span>
+              <header className="px-4 py-3 bg-slate-700 border-b border-slate-600">
+                <div className="flex items-baseline justify-between">
+                  <h3 className="text-lg font-semibold text-white uppercase tracking-wide">{view.direction}</h3>
+                  <span className="text-sm text-slate-400">{view.roofLabel}</span>
+                </div>
               </header>
-              <svg
-                role="img"
-                aria-label={`${view.direction} elevation`}
-                width="100%"
-                height={SVG_HEIGHT}
-                viewBox={`0 0 ${SVG_WIDTH} ${SVG_HEIGHT}`}
-                className="w-full"
-              >
+
+              <div className="flex-1 p-4">
+                <svg
+                  role="img"
+                  aria-label={`${view.direction} elevation`}
+                  width="100%"
+                  height="100%"
+                  viewBox={`0 0 ${SVG_WIDTH} ${SVG_HEIGHT}`}
+                  className="w-full h-full"
+                  preserveAspectRatio="xMidYMid meet"
+                >
                 <rect
                   x={MARGIN}
                   y={MARGIN}
@@ -126,14 +133,19 @@ export const ElevationViews: React.FC = () => {
                 >
                   {view.dimensionLabel}
                 </text>
-              </svg>
-              <ul className="space-y-1 text-sm text-slate-600">
-                {view.floors.map((floor) => (
-                  <li key={`${view.direction}-${floor.floorId}`}>
-                    {floor.floorId}: {floor.height}mm
-                  </li>
-                ))}
-              </ul>
+                </svg>
+              </div>
+
+              <div className="px-4 py-3 bg-slate-700 border-t border-slate-600">
+                <ul className="space-y-1 text-sm text-slate-300">
+                  {view.floors.map((floor) => (
+                    <li key={`${view.direction}-${floor.floorId}`} className="flex justify-between">
+                      <span className="font-medium">{floor.floorId}</span>
+                      <span>{floor.height}mm</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             </article>
           );
         })}

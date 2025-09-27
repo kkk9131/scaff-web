@@ -128,13 +128,13 @@ export const DimensionPanel: React.FC = () => {
   return (
     <section aria-label="Dimension panel" className="space-y-4">
       <header className="flex items-center gap-3">
-        <label className="text-sm text-slate-600" htmlFor="floor-selector">
+        <label className="text-sm text-slate-300" htmlFor="floor-selector">
           階層
         </label>
         <select
           id="floor-selector"
           aria-label="Floor selector"
-          className="rounded border border-slate-300 px-2 py-1"
+          className="rounded border border-slate-600 bg-slate-700 text-white px-2 py-1"
           value={activeFloor.id}
           onChange={handleFloorChange}
         >
@@ -145,15 +145,15 @@ export const DimensionPanel: React.FC = () => {
           ))}
         </select>
         <div className="ml-auto flex gap-2">
-          <button type="button" className="rounded border border-slate-300 px-2 py-1" onClick={addFloor}>
+          <button type="button" className="rounded border border-slate-600 px-2 py-1 text-slate-300 hover:bg-slate-600 transition-colors" onClick={addFloor}>
             Add Floor
           </button>
-          <button type="button" className="rounded border border-slate-300 px-2 py-1" onClick={duplicateFloor}>
+          <button type="button" className="rounded border border-slate-600 px-2 py-1 text-slate-300 hover:bg-slate-600 transition-colors" onClick={duplicateFloor}>
             Duplicate
           </button>
           <button
             type="button"
-            className="rounded border border-slate-300 px-2 py-1 disabled:opacity-40"
+            className="rounded border border-slate-600 px-2 py-1 text-slate-300 hover:bg-slate-600 transition-colors disabled:opacity-40"
             disabled={state.floors.length <= 1}
             onClick={removeFloor}
           >
@@ -164,13 +164,13 @@ export const DimensionPanel: React.FC = () => {
 
       <div className="grid gap-3 md:grid-cols-2">
         {activeFloor.dimensions.map((dimension, index) => (
-          <div key={dimension.edgeId} className="space-y-1 rounded border border-slate-200 p-3">
-            <h3 className="text-sm font-semibold text-slate-700">Edge {index + 1}</h3>
-            <label className="flex flex-col text-sm text-slate-600">
+          <div key={dimension.edgeId} className="space-y-1 rounded border border-slate-600 bg-slate-800 p-3">
+            <h3 className="text-sm font-semibold text-white">Edge {index + 1}</h3>
+            <label className="flex flex-col text-sm text-slate-300">
               長さ (mm)
               <input
                 aria-label={`Edge ${index + 1} Length (mm)`}
-                className="mt-1 rounded border border-slate-300 px-2 py-1"
+                className="mt-1 rounded border border-slate-600 bg-slate-700 text-white px-2 py-1"
                 value={drafts.dimensionLengths[dimension.edgeId] ?? ''}
                 onChange={handleDimensionChange(dimension.edgeId, 'dimensionLengths')}
                 onBlur={() => commitDimensionLength(dimension.edgeId)}
@@ -178,15 +178,15 @@ export const DimensionPanel: React.FC = () => {
               />
             </label>
             {errors[dimension.edgeId] && (
-              <p role="alert" className="text-xs text-red-600">
+              <p role="alert" className="text-xs text-red-400">
                 {errors[dimension.edgeId]}
               </p>
             )}
-            <label className="flex flex-col text-sm text-slate-600">
+            <label className="flex flex-col text-sm text-slate-300">
               境界距離 (mm)
               <input
                 aria-label={`Edge ${index + 1} Offset (mm)`}
-                className="mt-1 rounded border border-slate-300 px-2 py-1"
+                className="mt-1 rounded border border-slate-600 bg-slate-700 text-white px-2 py-1"
                 value={drafts.dimensionOffsets[dimension.edgeId] ?? ''}
                 onChange={handleDimensionChange(dimension.edgeId, 'dimensionOffsets')}
                 onBlur={() => commitDimensionOffset(dimension.edgeId)}
@@ -194,7 +194,7 @@ export const DimensionPanel: React.FC = () => {
               />
             </label>
             {errors[`${dimension.edgeId}-offset`] && (
-              <p role="alert" className="text-xs text-red-600">
+              <p role="alert" className="text-xs text-red-400">
                 {errors[`${dimension.edgeId}-offset`]}
               </p>
             )}
@@ -203,11 +203,11 @@ export const DimensionPanel: React.FC = () => {
       </div>
 
       <div className="grid gap-3 md:grid-cols-2">
-        <label className="flex flex-col text-sm text-slate-600">
+        <label className="flex flex-col text-sm text-slate-300">
           階高 (mm)
           <input
             aria-label="Floor Height (mm)"
-            className="mt-1 rounded border border-slate-300 px-2 py-1"
+            className="mt-1 rounded border border-slate-600 bg-slate-700 text-white px-2 py-1"
             value={drafts.height}
             onChange={(event) => setDrafts((prev) => ({ ...prev, height: event.target.value }))}
             onBlur={commitHeight}
@@ -219,11 +219,11 @@ export const DimensionPanel: React.FC = () => {
             {errors.height}
           </p>
         )}
-        <label className="flex flex-col text-sm text-slate-600">
+        <label className="flex flex-col text-sm text-slate-300">
           屋根勾配 (10/x)
           <input
             aria-label="Roof Slope (10/x)"
-            className="mt-1 rounded border border-slate-300 px-2 py-1"
+            className="mt-1 rounded border border-slate-600 bg-slate-700 text-white px-2 py-1"
             value={drafts.roofSlope}
             onChange={(event) => setDrafts((prev) => ({ ...prev, roofSlope: event.target.value }))}
             onBlur={commitRoofSlope}

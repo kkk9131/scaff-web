@@ -37,6 +37,8 @@ export const DimensionPanel: React.FC = () => {
     })
   );
   const [errors, setErrors] = useState<ErrorState>({});
+  const canModify = !activeFloor.locked;
+
 
   useEffect(() => {
     setDrafts(
@@ -90,11 +92,34 @@ export const DimensionPanel: React.FC = () => {
     const raw = drafts.dimensionOffsets[edgeId];
     const parsed = Number(raw);
     if (!Number.isFinite(parsed) || parsed < 0) {
-      updateError(`${edgeId}-offset`, '境界距離は0以上で入力してください。');
+      updateError(`${edgeId}-offset`, '軒の出は0以上で入力してください。');
       return;
     }
     updateError(`${edgeId}-offset`);
     dispatch({ type: 'updateEdgeOffset', floorId: activeFloor.id, edgeId, offset: parsed });
+  };
+
+  const handleSelectEdge = (edgeId: string) => {
+    dispatch({ type: 'selectEdge', edgeId });
+  };
+
+  const addVertex = (index: number) => {
+    if (!canModify) return;
+    const start = activeFloor.polygon[index];
+    const end = activeFloor.polygon[(index + 1) % activeFloor.polygon.length];
+    if (!start || !end) return;
+    const midpoint = {
+      x: Math.round((start.x + end.x) / 2),
+      y: Math.round((start.y + end.y) / 2)
+    };
+    dispatch({ type: 'addVertex', floorId: activeFloor.id, edgeIndex: index, point: midpoint });
+  };
+
+  const removeVertex = (index: number) => {
+    if (!canModify) return;
+    if (activeFloor.polygon.length <= 3) return;
+    const vertexIndex = (index + 1) % activeFloor.polygon.length;
+    dispatch({ type: 'removeVertex', floorId: activeFloor.id, vertexIndex });
   };
 
   const commitHeight = () => {
@@ -121,7 +146,6 @@ export const DimensionPanel: React.FC = () => {
     dispatch({ type: 'setActiveFloor', floorId: event.target.value });
   };
 
-  const addFloor = () => dispatch({ type: 'addFloor' });
   const duplicateFloor = () => dispatch({ type: 'duplicateFloor', floorId: activeFloor.id });
   const removeFloor = () => dispatch({ type: 'removeFloor', floorId: activeFloor.id });
 
@@ -145,11 +169,8 @@ export const DimensionPanel: React.FC = () => {
           ))}
         </select>
         <div className="ml-auto flex gap-2">
-          <button type="button" className="rounded border border-slate-600 px-2 py-1 text-slate-300 hover:bg-slate-600 transition-colors" onClick={addFloor}>
-            Add Floor
-          </button>
           <button type="button" className="rounded border border-slate-600 px-2 py-1 text-slate-300 hover:bg-slate-600 transition-colors" onClick={duplicateFloor}>
-            Duplicate
+            Add Floor
           </button>
           <button
             type="button"
@@ -164,8 +185,22 @@ export const DimensionPanel: React.FC = () => {
 
       <div className="grid gap-3 md:grid-cols-2">
         {activeFloor.dimensions.map((dimension, index) => (
-          <div key={dimension.edgeId} className="space-y-1 rounded border border-slate-600 bg-slate-800 p-3">
-            <h3 className="text-sm font-semibold text-white">Edge {index + 1}</h3>
+          <div
+            key={dimension.edgeId}
+            className={`space-y-2 rounded border p-3 transition-colors ${
+              state.selectedEdgeId === dimension.edgeId
+                ? 'border-blue-400 bg-blue-500/10'
+                : 'border-slate-600 bg-slate-800'
+            }`}
+          >
+            <button
+              type="button"
+              className="w-full text-left"
+              onClick={() => handleSelectEdge(dimension.edgeId)}
+              aria-pressed={state.selectedEdgeId === dimension.edgeId}
+            >
+              <h3 className="text-sm font-semibold text-white">Edge {index + 1}</h3>
+            </button>
             <label className="flex flex-col text-sm text-slate-300">
               長さ (mm)
               <input
@@ -175,6 +210,7 @@ export const DimensionPanel: React.FC = () => {
                 onChange={handleDimensionChange(dimension.edgeId, 'dimensionLengths')}
                 onBlur={() => commitDimensionLength(dimension.edgeId)}
                 inputMode="numeric"
+                disabled={!canModify}
               />
             </label>
             {errors[dimension.edgeId] && (
@@ -183,14 +219,15 @@ export const DimensionPanel: React.FC = () => {
               </p>
             )}
             <label className="flex flex-col text-sm text-slate-300">
-              境界距離 (mm)
+              軒の出 (mm)
               <input
-                aria-label={`Edge ${index + 1} Offset (mm)`}
+                aria-label={`Edge ${index + 1} Eave (mm)`}
                 className="mt-1 rounded border border-slate-600 bg-slate-700 text-white px-2 py-1"
                 value={drafts.dimensionOffsets[dimension.edgeId] ?? ''}
                 onChange={handleDimensionChange(dimension.edgeId, 'dimensionOffsets')}
                 onBlur={() => commitDimensionOffset(dimension.edgeId)}
                 inputMode="numeric"
+                disabled={!canModify}
               />
             </label>
             {errors[`${dimension.edgeId}-offset`] && (
@@ -198,6 +235,24 @@ export const DimensionPanel: React.FC = () => {
                 {errors[`${dimension.edgeId}-offset`]}
               </p>
             )}
+            <div className="mt-2 flex gap-2">
+              <button
+                type="button"
+                className="flex-1 rounded border border-slate-600 px-2 py-1 text-xs text-slate-200 hover:bg-slate-700 transition-colors disabled:opacity-40"
+                onClick={() => addVertex(index)}
+                disabled={!canModify}
+              >
+                頂点を追加
+              </button>
+              <button
+                type="button"
+                className="flex-1 rounded border border-slate-600 px-2 py-1 text-xs text-slate-200 hover:bg-slate-700 transition-colors disabled:opacity-40"
+                onClick={() => removeVertex(index)}
+                disabled={!canModify || activeFloor.polygon.length <= 3}
+              >
+                頂点を削除
+              </button>
+            </div>
           </div>
         ))}
       </div>
@@ -212,6 +267,7 @@ export const DimensionPanel: React.FC = () => {
             onChange={(event) => setDrafts((prev) => ({ ...prev, height: event.target.value }))}
             onBlur={commitHeight}
             inputMode="numeric"
+            disabled={!canModify}
           />
         </label>
         {errors.height && (
@@ -228,6 +284,7 @@ export const DimensionPanel: React.FC = () => {
             onChange={(event) => setDrafts((prev) => ({ ...prev, roofSlope: event.target.value }))}
             onBlur={commitRoofSlope}
             inputMode="numeric"
+            disabled={!canModify}
           />
         </label>
         {errors.roofSlope && (

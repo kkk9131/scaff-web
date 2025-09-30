@@ -40,8 +40,16 @@ describe('building state persistence', () => {
       template: 'rectangle',
       activeFloorId: 'missing',
       floors: [],
+      selectedEdgeId: null,
+      modes: {
+        rightAngle: false,
+        gridSnap: false,
+        gridVisible: true,
+        gridSpacing: 100,
+        dimensionVisible: true
+      },
       lastError: null
-    };
+    } as any;
 
     window.localStorage.setItem(BUILDING_STORAGE_KEY, JSON.stringify(invalidModel));
 
@@ -51,6 +59,31 @@ describe('building state persistence', () => {
     expect(window.localStorage.getItem(BUILDING_STORAGE_KEY)).toBeNull();
   });
 
+
+  it('applies defaults for models stored without latest fields', () => {
+    const legacy = createInitialBuildingModel('rectangle') as any;
+    const shallowLegacy = { ...legacy };
+    delete shallowLegacy.selectedEdgeId;
+    delete shallowLegacy.modes;
+    shallowLegacy.floors = shallowLegacy.floors.map((floor: any) => {
+      const copy = { ...floor };
+      delete copy.locked;
+      return copy;
+    });
+    window.localStorage.setItem(BUILDING_STORAGE_KEY, JSON.stringify(shallowLegacy));
+
+    const result = loadBuildingModel();
+    expect(result.ok).toBe(true);
+    expect(result.data?.selectedEdgeId).toBeNull();
+    expect(result.data?.modes).toEqual({
+      rightAngle: false,
+      gridSnap: false,
+      gridVisible: true,
+      gridSpacing: 100,
+      dimensionVisible: true
+    });
+    expect(result.data?.floors.every((floor) => floor.locked === false)).toBe(true);
+  });
   it('handles storage write errors gracefully', () => {
     const model = createInitialBuildingModel('rectangle');
 

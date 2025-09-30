@@ -29,6 +29,32 @@ describe('Building reducer actions', () => {
     expect(next.floors[0].dimensions).toHaveLength(6);
   });
 
+  it('applies template to active floor and resets selection', () => {
+    const initial = createInitialBuildingModel('rectangle');
+    const withSelection = { ...initial, selectedEdgeId: initial.floors[0].dimensions[0].edgeId } as BuildingModel;
+
+    const updated = buildingReducer(withSelection, {
+      type: 'applyTemplateToActiveFloor',
+      template: 'concave'
+    });
+
+    expect(updated.template).toBe('concave');
+    expect(updated.selectedEdgeId).toBeNull();
+    expect(updated.floors[0].polygon.length).toBeGreaterThan(4);
+    expect(updated.floors[0].polygon[3]).toEqual({ x: 4000, y: 1000 });
+    expect(updated.floors[0].dimensions).toHaveLength(updated.floors[0].polygon.length);
+  });
+
+  it('surfaces an error when template resolution fails', () => {
+    const initial = createInitialBuildingModel('rectangle');
+    const result = buildingReducer(initial, {
+      type: 'applyTemplateToActiveFloor',
+      template: 'missing-template' as any
+    });
+    expect(result.template).toBe(initial.template);
+    expect(result.lastError).toMatch(/テンプレート/);
+  });
+
   it('updates a vertex and recalculates adjacent edge lengths', () => {
     const initial = createInitialBuildingModel('rectangle');
 
@@ -67,6 +93,54 @@ describe('Building reducer actions', () => {
 
     expect(removed.floors[0].polygon).toHaveLength(4);
     expect(removed.floors[0].dimensions).toHaveLength(4);
+  });
+
+  it('sets selected edge id', () => {
+    const initial = createInitialBuildingModel('rectangle');
+    const edgeId = initial.floors[0].dimensions[1].edgeId;
+    const updated = buildingReducer(initial, { type: 'selectEdge', edgeId });
+    expect(updated.selectedEdgeId).toBe(edgeId);
+  });
+
+  it('updates drawing modes', () => {
+    const initial = createInitialBuildingModel('rectangle');
+    const rightAngle = buildingReducer(initial, { type: 'setDrawingMode', mode: 'rightAngle', value: true });
+    expect(rightAngle.modes.rightAngle).toBe(true);
+    const gridVisibility = buildingReducer(rightAngle, { type: 'setDrawingMode', mode: 'gridVisible', value: false });
+    expect(gridVisibility.modes.gridVisible).toBe(false);
+  });
+
+  it('applies uniform eave offsets to all edges', () => {
+    const initial = createInitialBuildingModel('rectangle');
+    const updated = buildingReducer(initial, {
+      type: 'generateEaveOffsets',
+      floorId: initial.activeFloorId,
+      offset: 500
+    });
+    expect(updated.floors[0].dimensions.every((dim) => dim.offset === 500)).toBe(true);
+  });
+
+  it('toggles floor lock state', () => {
+    const initial = createInitialBuildingModel('rectangle');
+    const floorId = initial.activeFloorId;
+    const locked = buildingReducer(initial, { type: 'toggleFloorLock', floorId, locked: true });
+    expect(locked.floors[0].locked).toBe(true);
+    const unlocked = buildingReducer(locked, { type: 'toggleFloorLock', floorId, locked: false });
+    expect(unlocked.floors[0].locked).toBe(false);
+  });
+
+  it('prevents updates when floor is locked', () => {
+    const initial = createInitialBuildingModel('rectangle');
+    const floorId = initial.activeFloorId;
+    const locked = buildingReducer(initial, { type: 'toggleFloorLock', floorId, locked: true });
+    const attempt = buildingReducer(locked, {
+      type: 'updateVertex',
+      floorId,
+      vertexIndex: 0,
+      point: { x: 1000, y: 0 }
+    });
+    expect(attempt.floors[0].polygon[0]).toEqual(locked.floors[0].polygon[0]);
+    expect(attempt.lastError).toMatch(/ロック/);
   });
 
   it('updates edge dimension length and moves the corresponding point', () => {

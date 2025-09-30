@@ -2,15 +2,18 @@
 
 import React, { createContext, useContext, useEffect, useMemo, useReducer, useRef } from 'react';
 import { loadBuildingModel, saveBuildingModel } from '../utils/persistence';
+import {
+  DEFAULT_CONSTRAINT_STATE,
+  type ConstraintState,
+  type Point,
+  type TemplateIdentifier,
+  validateTemplateDimensions
+} from '../modules/floorplan/types';
+import { buildTemplateShape, getTemplateById } from '../modules/templates/catalog';
 
-export type TemplateType = 'rectangle' | 'l-shape' | 't-shape' | 'u-shape';
+export type TemplateType = TemplateIdentifier;
 
 export type RoofType = 'flat' | 'mono' | 'gable' | 'hip';
-
-export interface Point {
-  x: number;
-  y: number;
-}
 
 export interface EdgeDimension {
   edgeId: string;
@@ -21,6 +24,16 @@ export interface EdgeDimension {
 export interface RoofConfig {
   type: RoofType;
   slopeValue: number;
+}
+
+export type DrawingModes = ConstraintState;
+
+export type ToggleableDrawingMode = Exclude<keyof DrawingModes, 'gridSpacing'>;
+
+export interface LayerState {
+  id: string;
+  name: string;
+  locked: boolean;
 }
 
 export interface FloorStyle {
@@ -38,12 +51,15 @@ export interface FloorModel {
   height: number;
   roof: RoofConfig;
   style: FloorStyle;
+  locked: boolean;
 }
 
 export interface BuildingModel {
   template: TemplateType;
   floors: FloorModel[];
   activeFloorId: string;
+  selectedEdgeId: string | null;
+  modes: DrawingModes;
   lastError: string | null;
 }
 
@@ -55,44 +71,65 @@ export interface ValidationResult {
 const BASE_HEIGHT = 3000;
 const DEFAULT_SLOPE = 0;
 
+export const DEFAULT_DRAWING_MODES: DrawingModes = {
+  ...DEFAULT_CONSTRAINT_STATE
+};
+
 const FLOOR_COLORS = ['#2563eb', '#16a34a', '#d97706', '#dc2626'];
 
-const TEMPLATE_POLYGONS: Record<TemplateType, Point[]> = {
-  rectangle: [
-    { x: 0, y: 0 },
-    { x: 6000, y: 0 },
-    { x: 6000, y: 4000 },
-    { x: 0, y: 4000 }
-  ],
-  'l-shape': [
-    { x: 0, y: 0 },
-    { x: 4000, y: 0 },
-    { x: 4000, y: 2000 },
-    { x: 2000, y: 2000 },
-    { x: 2000, y: 4000 },
-    { x: 0, y: 4000 }
-  ],
-  't-shape': [
-    { x: 0, y: 0 },
-    { x: 6000, y: 0 },
-    { x: 6000, y: 2000 },
-    { x: 4000, y: 2000 },
-    { x: 4000, y: 4000 },
-    { x: 2000, y: 4000 },
-    { x: 2000, y: 2000 },
-    { x: 0, y: 2000 }
-  ],
-  'u-shape': [
-    { x: 0, y: 0 },
-    { x: 6000, y: 0 },
-    { x: 6000, y: 1000 },
-    { x: 4000, y: 1000 },
-    { x: 4000, y: 4000 },
-    { x: 2000, y: 4000 },
-    { x: 2000, y: 1000 },
-    { x: 0, y: 1000 }
-  ]
-};
+const FALLBACK_TEMPLATE_ID: TemplateType = 'rectangle';
+
+interface TemplateResolutionOptions {
+  allowFallback?: boolean;
+}
+
+function resolveTemplateShape(
+  templateId: TemplateType,
+  floorId: string,
+  options?: TemplateResolutionOptions
+) {
+  const template = getTemplateById(templateId);
+  if (!template) {
+    if (!options?.allowFallback) {
+      return {
+        resolvedTemplate: templateId,
+        error: '指定したテンプレートが見つかりません。'
+      } as const;
+    }
+  } else {
+    const validation = validateTemplateDimensions(template);
+    if (!validation.valid) {
+      if (!options?.allowFallback) {
+        return {
+          resolvedTemplate: templateId,
+          error: 'テンプレートが最小寸法要件を満たしていません。'
+        } as const;
+      }
+    } else {
+      const shape = buildTemplateShape({ templateId, floorId });
+      if (shape) {
+        return { shape, resolvedTemplate: templateId } as const;
+      }
+    }
+  }
+
+  if (options?.allowFallback) {
+    const fallbackShape = buildTemplateShape({ templateId: FALLBACK_TEMPLATE_ID, floorId });
+    if (!fallbackShape) {
+      throw new Error('テンプレート定義が見つかりません。');
+    }
+    return {
+      shape: fallbackShape,
+      resolvedTemplate: FALLBACK_TEMPLATE_ID
+    } as const;
+  }
+
+  return {
+    resolvedTemplate: templateId,
+    error: 'テンプレートを読み込めませんでした。'
+  } as const;
+}
+
 
 const generateFloorStyle = (index: number): FloorStyle => ({
   strokeColor: FLOOR_COLORS[index % FLOOR_COLORS.length],
@@ -171,8 +208,12 @@ const createDimensions = (floorId: string, polygon: Point[]): EdgeDimension[] =>
   });
 
 export const createInitialBuildingModel = (template: TemplateType): BuildingModel => {
-  const polygon = TEMPLATE_POLYGONS[template].map(({ x, y }) => ({ x, y }));
   const floorId = 'floor-1';
+  const { shape, resolvedTemplate } = resolveTemplateShape(template, floorId, { allowFallback: true });
+  if (!shape) {
+    throw new Error('初期テンプレートの生成に失敗しました。');
+  }
+  const polygon = shape.vertices.map(({ x, y }) => ({ x, y }));
 
   const floor: FloorModel = {
     id: floorId,
@@ -181,13 +222,16 @@ export const createInitialBuildingModel = (template: TemplateType): BuildingMode
     dimensions: createDimensions(floorId, polygon),
     height: BASE_HEIGHT,
     roof: { type: 'flat', slopeValue: DEFAULT_SLOPE },
-    style: generateFloorStyle(0)
+    style: generateFloorStyle(0),
+    locked: false
   };
 
   return {
-    template,
+    template: resolvedTemplate,
     floors: [floor],
     activeFloorId: floorId,
+    selectedEdgeId: null,
+    modes: { ...DEFAULT_DRAWING_MODES },
     lastError: null
   };
 };
@@ -246,6 +290,10 @@ export const validateBuildingModel = (model: BuildingModel): ValidationResult =>
       errors.push(`${floor.name} の屋根タイプが無効です。`);
     }
 
+    if (typeof floor.locked !== 'boolean') {
+      errors.push(`${floor.name} のロック状態が無効です。`);
+    }
+
     if (!floor.id) {
       errors.push(`階層 ${index} のIDが空です。`);
     }
@@ -288,12 +336,18 @@ const duplicateFloor = (floor: FloorModel, index: number, newId: string): FloorM
   name: floorNameForIndex(index),
   polygon: clonePolygon(floor.polygon),
   dimensions: createDimensions(newId, clonePolygon(floor.polygon)),
-  style: generateFloorStyle(index)
+  style: generateFloorStyle(index),
+  locked: false
 });
 
 export type BuildingAction =
   | { type: 'noop' }
   | { type: 'selectTemplate'; template: TemplateType }
+  | { type: 'applyTemplateToActiveFloor'; template: TemplateType }
+  | { type: 'selectEdge'; edgeId: string | null }
+  | { type: 'setDrawingMode'; mode: ToggleableDrawingMode; value: boolean }
+  | { type: 'generateEaveOffsets'; floorId: string; offset: number }
+  | { type: 'toggleFloorLock'; floorId: string; locked: boolean }
   | { type: 'setActiveFloor'; floorId: string }
   | { type: 'updateVertex'; floorId: string; vertexIndex: number; point: Point }
   | { type: 'addVertex'; floorId: string; edgeIndex: number; point: Point }
@@ -331,13 +385,18 @@ const withChange = (floor: FloorModel): FloorUpdateResult => ({ floor, changed: 
 const updateFloors = (
   floors: FloorModel[],
   floorId: string,
-  updater: (floor: FloorModel, index: number) => FloorUpdateResult
+  updater: (floor: FloorModel, index: number) => FloorUpdateResult,
+  options?: { ignoreLock?: boolean }
 ): { floors: FloorModel[]; changed: boolean; error?: string } => {
   let changed = false;
   let error: string | undefined;
 
   const nextFloors = floors.map((floor, index) => {
     if (floor.id !== floorId) {
+      return floor;
+    }
+    if (floor.locked && !options?.ignoreLock) {
+      error = 'この階層はロックされています。';
       return floor;
     }
     const result = updater(floor, index);
@@ -357,12 +416,13 @@ const applyFloorUpdate = (
   state: BuildingModel,
   floorId: string,
   updater: (floor: FloorModel, index: number) => FloorUpdateResult,
-  missingFloorMessage?: string
+  missingFloorMessage?: string,
+  options?: { ignoreLock?: boolean }
 ): BuildingModel => {
   if (!state.floors.some((floor) => floor.id === floorId)) {
     return missingFloorMessage ? { ...state, lastError: missingFloorMessage } : state;
   }
-  const { floors, changed, error } = updateFloors(state.floors, floorId, updater);
+  const { floors, changed, error } = updateFloors(state.floors, floorId, updater, options);
   if (!changed) {
     if (error) {
       return { ...state, lastError: error };
@@ -396,6 +456,52 @@ export const buildingReducer = (state: BuildingModel, action: BuildingAction): B
     }
     case 'selectTemplate': {
       return createInitialBuildingModel(action.template);
+    }
+    case 'applyTemplateToActiveFloor': {
+      const resolution = resolveTemplateShape(action.template, state.activeFloorId);
+      if (!resolution.shape) {
+        return {
+          ...state,
+          lastError: resolution.error ?? 'テンプレートを読み込めませんでした。'
+        };
+      }
+      const nextState = applyFloorUpdate(
+        state,
+        state.activeFloorId,
+        (floor) => {
+          if (floor.locked) {
+            return noChange(floor, 'この階層はロックされているためテンプレートを適用できません。');
+          }
+          const nextPolygon = resolution.shape.vertices.map(clonePoint);
+          return withChange(recalculateFloor(floor, nextPolygon));
+        },
+        '対象の階層が見つかりません。'
+      );
+      if (nextState === state && nextState.lastError) {
+        return nextState;
+      }
+      return {
+        ...nextState,
+        template: resolution.resolvedTemplate,
+        selectedEdgeId: null,
+        lastError: resolution.error ?? nextState.lastError
+      };
+    }
+    case 'selectEdge': {
+      return { ...state, selectedEdgeId: action.edgeId, lastError: null };
+    }
+    case 'setDrawingMode': {
+      if (!(action.mode in state.modes)) {
+        return state;
+      }
+      if (state.modes[action.mode] === action.value) {
+        return state;
+      }
+      return {
+        ...state,
+        modes: { ...state.modes, [action.mode]: action.value },
+        lastError: null
+      };
     }
     case 'setActiveFloor': {
       if (!state.floors.some((floor) => floor.id === action.floorId)) {
@@ -464,6 +570,30 @@ export const buildingReducer = (state: BuildingModel, action: BuildingAction): B
         '対象の階層が見つかりません。'
       );
     }
+    case 'generateEaveOffsets': {
+      if (action.offset < 0) {
+        return { ...state, lastError: '軒の出オフセットは0以上で指定してください。' };
+      }
+      const nextState = applyFloorUpdate(
+        state,
+        action.floorId,
+        (floor) => {
+          if (floor.locked) {
+            return noChange(floor, 'この階層はロックされています。');
+          }
+          const nextDimensions = floor.dimensions.map((dimension) => ({
+            ...dimension,
+            offset: action.offset
+          }));
+          return withChange({ ...floor, dimensions: nextDimensions });
+        },
+        '対象の階層が見つかりません。'
+      );
+      if (nextState === state && nextState.lastError) {
+        return nextState;
+      }
+      return { ...nextState, selectedEdgeId: null };
+    }
     case 'updateEdgeLength': {
       const { floorId, edgeId, length } = action;
       if (length <= 0) {
@@ -490,6 +620,20 @@ export const buildingReducer = (state: BuildingModel, action: BuildingAction): B
           return withChange(recalculateFloor(floor, nextPolygon));
         },
         '対象の階層が見つかりません。'
+      );
+    }
+    case 'toggleFloorLock': {
+      return applyFloorUpdate(
+        state,
+        action.floorId,
+        (floor) => {
+          if (floor.locked === action.locked) {
+            return noChange(floor);
+          }
+          return withChange({ ...floor, locked: action.locked });
+        },
+        '対象の階層が見つかりません。',
+        { ignoreLock: true }
       );
     }
     case 'updateEdgeOffset': {
@@ -562,9 +706,13 @@ export const buildingReducer = (state: BuildingModel, action: BuildingAction): B
       const sourceFloor = activeFloor ?? state.floors[0];
       const newIndex = state.floors.length;
       const newId = nextFloorId(state.floors);
+      const templateResolution = resolveTemplateShape(state.template, newId, { allowFallback: true });
+      if (!sourceFloor && !templateResolution.shape) {
+        throw new Error('テンプレート初期化に失敗しました。');
+      }
       const polygon = sourceFloor
         ? clonePolygon(sourceFloor.polygon)
-        : clonePolygon(TEMPLATE_POLYGONS[state.template]);
+        : clonePolygon(templateResolution.shape!.vertices);
       const roof = sourceFloor?.roof ?? { type: 'flat', slopeValue: DEFAULT_SLOPE };
       const newFloor: FloorModel = {
         id: newId,
@@ -573,7 +721,8 @@ export const buildingReducer = (state: BuildingModel, action: BuildingAction): B
         dimensions: createDimensions(newId, polygon),
         height: sourceFloor?.height ?? BASE_HEIGHT,
         roof: { ...roof },
-        style: generateFloorStyle(newIndex)
+        style: generateFloorStyle(newIndex),
+        locked: false
       };
       return {
         ...state,

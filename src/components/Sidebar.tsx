@@ -1,9 +1,11 @@
 "use client";
 
-import React from 'react';
+import React, { useState } from 'react';
 import { DimensionPanel } from './DimensionPanel';
+import { DrawingSupportToolbar } from './DrawingSupportToolbar';
 import { OutputToolbar } from './OutputToolbar';
-import { X, Settings, Layers, FileText } from 'lucide-react';
+import { TemplateSidebarSection } from './sidebar/TemplateSidebarSection';
+import { X, Settings, Layers, FileText, Square, Wand2, Shapes } from 'lucide-react';
 
 interface SidebarProps {
   isOpen: boolean;
@@ -11,6 +13,17 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({
+    template: false,
+    output: false,
+    drawing: false,
+    dimension: true
+  });
+
+  const toggleSection = (key: keyof typeof openSections) => {
+    setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+
   return (
     <>
       {/* オーバーレイ（モバイル用） */}
@@ -43,26 +56,88 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
             </button>
           </div>
 
+          {/* セクション: テンプレート */}
+          <section>
+            <button
+              type="button"
+              onClick={() => toggleSection('template')}
+              className="w-full flex items-center justify-between rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-200 hover:bg-slate-700 transition-colors"
+              aria-expanded={openSections.template}
+            >
+              <span className="flex items-center gap-2">
+                <Shapes className="w-4 h-4" />
+                テンプレート
+              </span>
+              <span>{openSections.template ? '−' : '+'}</span>
+            </button>
+            {openSections.template && (
+              <div className="mt-2 bg-slate-700 p-3 rounded-lg">
+                <TemplateSidebarSection />
+              </div>
+            )}
+          </section>
+
           {/* セクション: 出力オプション */}
-          <section className="space-y-3">
-            <h3 className="text-sm font-semibold text-slate-300 flex items-center gap-2">
-              <FileText className="w-4 h-4" />
-              出力オプション
-            </h3>
-            <div className="bg-slate-700 p-3 rounded-lg">
-              <OutputToolbar />
-            </div>
+          <section>
+            <button
+              type="button"
+              onClick={() => toggleSection('output')}
+              className="w-full flex items-center justify-between rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-200 hover:bg-slate-700 transition-colors"
+              aria-expanded={openSections.output}
+            >
+              <span className="flex items-center gap-2">
+                <FileText className="w-4 h-4" />
+                出力オプション
+              </span>
+              <span>{openSections.output ? '−' : '+'}</span>
+            </button>
+            {openSections.output && (
+              <div className="mt-2 bg-slate-700 p-3 rounded-lg">
+                <OutputToolbar />
+              </div>
+            )}
+          </section>
+
+          {/* セクション: 作図サポート */}
+          <section>
+            <button
+              type="button"
+              onClick={() => toggleSection('drawing')}
+              className="w-full flex items-center justify-between rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-200 hover:bg-slate-700 transition-colors"
+              aria-expanded={openSections.drawing}
+            >
+              <span className="flex items-center gap-2">
+                <Wand2 className="w-4 h-4" />
+                作図サポート
+              </span>
+              <span>{openSections.drawing ? '−' : '+'}</span>
+            </button>
+            {openSections.drawing && (
+              <div className="mt-2 bg-slate-700 p-3 rounded-lg">
+                <DrawingSupportToolbar />
+              </div>
+            )}
           </section>
 
           {/* セクション: 寸法設定 */}
-          <section className="space-y-3">
-            <h3 className="text-sm font-semibold text-slate-300 flex items-center gap-2">
-              <Layers className="w-4 h-4" />
-              寸法設定
-            </h3>
-            <div className="bg-slate-700 p-3 rounded-lg">
-              <DimensionPanel />
-            </div>
+          <section>
+            <button
+              type="button"
+              onClick={() => toggleSection('dimension')}
+              className="w-full flex items-center justify-between rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-200 hover:bg-slate-700 transition-colors"
+              aria-expanded={openSections.dimension}
+            >
+              <span className="flex items-center gap-2">
+                <Layers className="w-4 h-4" />
+                寸法設定
+              </span>
+              <span>{openSections.dimension ? '−' : '+'}</span>
+            </button>
+            {openSections.dimension && (
+              <div className="mt-2 bg-slate-700 p-3 rounded-lg">
+                <DimensionPanel />
+              </div>
+            )}
           </section>
         </div>
       </aside>

@@ -1,4 +1,4 @@
-import { validateBuildingModel, type BuildingModel } from '../context/BuildingProvider';
+import { DEFAULT_DRAWING_MODES, validateBuildingModel, type BuildingModel, type DrawingModes } from '../context/BuildingProvider';
 
 export const BUILDING_STORAGE_KEY = 'scaff-web:building-state';
 
@@ -47,6 +47,30 @@ export const saveBuildingModel = (
   }
 };
 
+const normalizeModes = (modes?: Partial<DrawingModes>): DrawingModes => ({
+  rightAngle: modes?.rightAngle ?? DEFAULT_DRAWING_MODES.rightAngle,
+  gridSnap: modes?.gridSnap ?? DEFAULT_DRAWING_MODES.gridSnap,
+  gridVisible: modes?.gridVisible ?? DEFAULT_DRAWING_MODES.gridVisible,
+  gridSpacing: modes?.gridSpacing ?? DEFAULT_DRAWING_MODES.gridSpacing,
+  dimensionVisible: modes?.dimensionVisible ?? DEFAULT_DRAWING_MODES.dimensionVisible
+});
+
+const normalizeBuildingModel = (model: any): BuildingModel => {
+  const floors = Array.isArray(model?.floors)
+    ? model.floors.map((floor: any) => ({
+        ...floor,
+        locked: typeof floor?.locked === 'boolean' ? floor.locked : false
+      }))
+    : [];
+
+  return {
+    ...model,
+    selectedEdgeId: typeof model?.selectedEdgeId === 'string' ? model.selectedEdgeId : null,
+    modes: normalizeModes(model?.modes),
+    floors
+  } as BuildingModel;
+};
+
 const removeIfPossible = (storage: Storage | null) => {
   try {
     storage?.removeItem(BUILDING_STORAGE_KEY);
@@ -69,8 +93,9 @@ export const loadBuildingModel = (
       return { ok: true, data: null };
     }
 
-    const parsed = JSON.parse(raw) as BuildingModel;
-    const validation = validateBuildingModel(parsed);
+    const parsed = JSON.parse(raw);
+    const normalized = normalizeBuildingModel(parsed);
+    const validation = validateBuildingModel(normalized);
     if (!validation.valid) {
       removeIfPossible(storage);
       return {
@@ -79,7 +104,7 @@ export const loadBuildingModel = (
       };
     }
 
-    return { ok: true, data: parsed };
+    return { ok: true, data: normalized };
   } catch (error) {
     removeIfPossible(storage);
     return {

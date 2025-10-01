@@ -41,7 +41,7 @@ describe('Building reducer actions', () => {
     expect(updated.template).toBe('concave');
     expect(updated.selectedEdgeId).toBeNull();
     expect(updated.floors[0].polygon.length).toBeGreaterThan(4);
-    expect(updated.floors[0].polygon[3]).toEqual({ x: 4000, y: 1000 });
+    expect(updated.floors[0].polygon[3]).toEqual({ x: 3500, y: 1500 });
     expect(updated.floors[0].dimensions).toHaveLength(updated.floors[0].polygon.length);
   });
 
@@ -169,6 +169,110 @@ describe('Building reducer actions', () => {
     expect(duplicated.floors).toHaveLength(2);
     expect(duplicated.floors[1].polygon).toEqual(duplicated.floors[0].polygon);
     expect(duplicated.floors[1].id).not.toBe(duplicated.floors[0].id);
+  });
+
+  it('updates roof configuration including ridge height', () => {
+    const initial = createInitialBuildingModel('rectangle');
+    const updated = dispatch(initial, {
+      type: 'updateRoof',
+      floorId: initial.activeFloorId,
+      roof: { type: 'gable', slopeValue: 3, ridgeHeight: initial.floors[0].height + 1200 }
+    });
+
+    const floor = updated.floors[0];
+    expect(floor.roof.type).toBe('gable');
+    expect(floor.roof.slopeValue).toBe(3);
+    expect(floor.roof.ridgeHeight).toBe(initial.floors[0].height + 1200);
+    expect(floor.roof.parapetHeight).toBe(0);
+    expect(updated.lastError).toBeNull();
+  });
+
+  it('rejects ridge height lower than floor height', () => {
+    const initial = createInitialBuildingModel('rectangle');
+    const withGable = dispatch(initial, {
+      type: 'updateRoof',
+      floorId: initial.activeFloorId,
+      roof: { type: 'gable', slopeValue: 3, ridgeHeight: initial.floors[0].height + 1200 }
+    });
+    const result = dispatch(withGable, {
+      type: 'updateRoof',
+      floorId: initial.activeFloorId,
+      roof: { ridgeHeight: 10 }
+    });
+
+    expect(result.floors[0].roof.ridgeHeight).toBe(withGable.floors[0].roof.ridgeHeight);
+    expect(result.lastError).toMatch(/最高/);
+  });
+
+  it('updates parapet height for flat roofs', () => {
+    const initial = createInitialBuildingModel('rectangle');
+    const updated = dispatch(initial, {
+      type: 'updateRoof',
+      floorId: initial.activeFloorId,
+      roof: { parapetHeight: 500 }
+    });
+
+    const floor = updated.floors[0];
+    expect(floor.roof.parapetHeight).toBe(500);
+    expect(floor.roof.type).toBe('flat');
+  });
+
+  it('rejects negative parapet height', () => {
+    const initial = createInitialBuildingModel('rectangle');
+    const result = dispatch(initial, {
+      type: 'updateRoof',
+      floorId: initial.activeFloorId,
+      roof: { parapetHeight: -100 }
+    });
+
+    expect(result.floors[0].roof.parapetHeight).toBe(0);
+    expect(result.lastError).toMatch(/立ち上がりは0以上/);
+  });
+
+  it('updates eave offsets uniformly via updateEaveOffset', () => {
+    const initial = createInitialBuildingModel('rectangle');
+    const updated = dispatch(initial, {
+      type: 'updateEaveOffset',
+      floorId: initial.activeFloorId,
+      offset: 750
+    });
+
+    expect(updated.floors[0].dimensions.every((dimension) => dimension.offset === 750)).toBe(true);
+    expect(updated.lastError).toBeNull();
+  });
+
+  it('rejects negative eave offset values', () => {
+    const initial = createInitialBuildingModel('rectangle');
+    const result = dispatch(initial, {
+      type: 'updateEaveOffset',
+      floorId: initial.activeFloorId,
+      offset: -10
+    });
+
+    expect(result.floors[0].dimensions.every((dimension) => dimension.offset >= 0)).toBe(true);
+    expect(result.lastError).toMatch(/軒の出/);
+  });
+
+  it('prevents roof and eave updates on locked floors', () => {
+    const initial = createInitialBuildingModel('rectangle');
+    const floorId = initial.activeFloorId;
+    const locked = dispatch(initial, { type: 'toggleFloorLock', floorId, locked: true });
+
+    const roofAttempt = dispatch(locked, {
+      type: 'updateRoof',
+      floorId,
+      roof: { type: 'hip', ridgeHeight: locked.floors[0].height + 100, slopeValue: 2 }
+    });
+    expect(roofAttempt.floors[0].roof.type).toBe(locked.floors[0].roof.type);
+    expect(roofAttempt.lastError).toMatch(/ロック/);
+
+    const eaveAttempt = dispatch(locked, {
+      type: 'updateEaveOffset',
+      floorId,
+      offset: 400
+    });
+    expect(eaveAttempt.floors[0].dimensions.every((dimension) => dimension.offset === locked.floors[0].dimensions[0].offset)).toBe(true);
+    expect(eaveAttempt.lastError).toMatch(/ロック/);
   });
 
   it('adds and removes floors while maintaining an active floor', () => {

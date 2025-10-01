@@ -23,6 +23,8 @@ describe('Building model initialization', () => {
     expect(new Set(floor.dimensions.map((d) => d.edgeId)).size).toBe(4);
     expect(floor.height).toBeGreaterThan(0);
     expect(floor.roof.type).toBe('flat');
+    expect(floor.roof.ridgeHeight).toBeGreaterThanOrEqual(floor.height);
+    expect(floor.roof.parapetHeight).toBe(0);
   });
 
   it('initializes drawing modes and selection defaults', () => {
@@ -33,16 +35,21 @@ describe('Building model initialization', () => {
       gridSnap: false,
       gridVisible: true,
       gridSpacing: 100,
-      dimensionVisible: true
+      dimensionVisible: true,
+      dimensionVisibleElevation: true
     });
     expect(model.floors[0]).toHaveProperty('locked', false);
   });
 
   it('rejects negative eave offsets in validation', () => {
     const model = createInitialBuildingModel(template) as any;
-    const floor = { ...model.floors[0], dimensions: model.floors[0].dimensions.map((dimension: any, index: number) =>
-      index === 0 ? { ...dimension, offset: -10 } : dimension
-    ) };
+    const floor = {
+      ...model.floors[0],
+      roof: { ...model.floors[0].roof, ridgeHeight: -100, parapetHeight: -50 },
+      dimensions: model.floors[0].dimensions.map((dimension: any, index: number) =>
+        index === 0 ? { ...dimension, offset: -10 } : dimension
+      )
+    };
     const invalid: BuildingModel = {
       template: model.template,
       activeFloorId: floor.id,
@@ -52,6 +59,8 @@ describe('Building model initialization', () => {
     const result = validateBuildingModel(invalid);
     expect(result.valid).toBe(false);
     expect(result.errors.some((msg) => msg.includes('オフセット'))).toBe(true);
+    expect(result.errors.some((msg) => msg.includes('最高') || msg.includes('ridge'))).toBe(true);
+    expect(result.errors.some((msg) => msg.includes('立ち上がり'))).toBe(true);
   });
 
   it('produces no validation errors for the default model', () => {
@@ -76,7 +85,7 @@ describe('Building model initialization', () => {
         { edgeId: 'edge-2', length: 0, offset: 0 }
       ],
       height: 0,
-      roof: { type: 'flat', slopeValue: 0 },
+      roof: { type: 'flat', slopeValue: 0, ridgeHeight: 2000, parapetHeight: 0 },
       style: {
         strokeColor: '#000000',
         roofStrokeColor: '#000000',

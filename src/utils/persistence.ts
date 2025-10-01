@@ -52,15 +52,50 @@ const normalizeModes = (modes?: Partial<DrawingModes>): DrawingModes => ({
   gridSnap: modes?.gridSnap ?? DEFAULT_DRAWING_MODES.gridSnap,
   gridVisible: modes?.gridVisible ?? DEFAULT_DRAWING_MODES.gridVisible,
   gridSpacing: modes?.gridSpacing ?? DEFAULT_DRAWING_MODES.gridSpacing,
-  dimensionVisible: modes?.dimensionVisible ?? DEFAULT_DRAWING_MODES.dimensionVisible
+  dimensionVisible: modes?.dimensionVisible ?? DEFAULT_DRAWING_MODES.dimensionVisible,
+  dimensionVisibleElevation:
+    modes?.dimensionVisibleElevation ?? DEFAULT_DRAWING_MODES.dimensionVisibleElevation
 });
 
 const normalizeBuildingModel = (model: any): BuildingModel => {
   const floors = Array.isArray(model?.floors)
-    ? model.floors.map((floor: any) => ({
-        ...floor,
-        locked: typeof floor?.locked === 'boolean' ? floor.locked : false
-      }))
+    ? model.floors.map((floor: any) => {
+        const slopeValue = Number(floor?.roof?.slopeValue);
+        const ridgeHeight = Number(floor?.roof?.ridgeHeight);
+        const parapetHeight = Number(floor?.roof?.parapetHeight);
+        const heightValue = Number(floor?.height);
+        const height = Number.isFinite(heightValue) && heightValue > 0 ? heightValue : 0;
+        const rawType = typeof floor?.roof?.type === 'string' ? floor.roof.type : 'flat';
+        const type: 'flat' | 'mono' | 'gable' | 'hip' = ['flat', 'mono', 'gable', 'hip'].includes(rawType)
+          ? (rawType as any)
+          : 'flat';
+
+        let normalizedSlope = Number.isFinite(slopeValue) && slopeValue >= 0 ? slopeValue : 0;
+        let normalizedRidge = Number.isFinite(ridgeHeight) && ridgeHeight >= height
+          ? ridgeHeight
+          : Math.max(height, 0);
+        let normalizedParapet = Number.isFinite(parapetHeight) && parapetHeight >= 0
+          ? parapetHeight
+          : 0;
+
+        if (type === 'flat') {
+          normalizedSlope = 0;
+          normalizedRidge = Math.max(height + normalizedParapet, height);
+        } else {
+          normalizedParapet = 0;
+        }
+
+        return {
+          ...floor,
+          locked: typeof floor?.locked === 'boolean' ? floor.locked : false,
+          roof: {
+            type,
+            slopeValue: normalizedSlope,
+            ridgeHeight: normalizedRidge,
+            parapetHeight: normalizedParapet
+          }
+        };
+      })
     : [];
 
   return {

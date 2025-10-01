@@ -7,6 +7,8 @@ import { useBuildingState } from '../context/BuildingProvider';
 const SVG_WIDTH = 320;
 const SVG_HEIGHT = 220;
 const MARGIN = 24;
+const DIMENSION_OFFSET = 12;
+const DIMENSION_COLOR = '#1f2937';
 
 const toSvgPoints = (points: Array<{ x: number; y: number }>): string =>
   points.map((p) => `${p.x},${p.y}`).join(' ');
@@ -29,25 +31,71 @@ export const ElevationViews: React.FC = () => {
           const scaleX = view.dimensionValue > 0 ? (SVG_WIDTH - MARGIN * 2) / view.dimensionValue : 1;
           const scaleY = view.totalHeight > 0 ? (SVG_HEIGHT - MARGIN * 2) / view.totalHeight : 1;
 
+          const convertPoint = ({ x, y }: { x: number; y: number }) => ({
+            x: MARGIN + x * scaleX,
+            y: SVG_HEIGHT - MARGIN - y * scaleY
+          });
+
+          const scaledRoofOutline = view.roofOutline?.map(convertPoint) ?? [];
+
+          const scaledEaveLines = view.eaveLines?.map((line) => ({
+            ...line,
+            start: convertPoint(line.start),
+            end: convertPoint(line.end)
+          })) ?? [];
+
+          const scaledHeightDimensions = view.heightDimensions?.map((line) => {
+            const start = convertPoint(line.start);
+            const end = convertPoint(line.end);
+            return {
+              ...line,
+              start: { x: start.x + DIMENSION_OFFSET, y: start.y },
+              end: { x: end.x + DIMENSION_OFFSET, y: end.y }
+            };
+          }) ?? [];
+
+          const scaledEaveDimensions = view.eaveDimensions?.map((line) => {
+            const start = convertPoint(line.start);
+            const end = convertPoint(line.end);
+            return {
+              ...line,
+              start: { x: start.x + DIMENSION_OFFSET, y: start.y },
+              end: { x: end.x + DIMENSION_OFFSET, y: end.y }
+            };
+          }) ?? [];
+
           const transformedFloors = view.floors.map((floor) => {
-            const svgPoints = floor.outline.map((point) => ({
-              x: MARGIN + point.x * scaleX,
-              y: SVG_HEIGHT - MARGIN - point.y * scaleY
+            const sourceFragments = floor.fragments && floor.fragments.length
+              ? floor.fragments
+              : [
+                  {
+                    id: `${floor.floorId}-fallback`,
+                    points: floor.outline,
+                    roofLine: [
+                      floor.outline[3] ?? floor.outline[0],
+                      floor.outline[2] ?? floor.outline[1] ?? floor.outline[0]
+                    ]
+                  }
+                ];
+
+            const svgFragments = sourceFragments.map((fragment) => ({
+              id: fragment.id,
+              svgPoints: fragment.points.map(convertPoint),
+              roofLine: fragment.roofLine.map(convertPoint) as [
+                { x: number; y: number },
+                { x: number; y: number }
+              ]
             }));
-            const roofLine: [Point, Point] = [
-              svgPoints[3] ?? { x: MARGIN, y: SVG_HEIGHT - MARGIN },
-              svgPoints[2] ?? { x: SVG_WIDTH - MARGIN, y: SVG_HEIGHT - MARGIN }
-            ];
+
             return {
               ...floor,
-              svgPoints,
-              roofLine
+              svgFragments
             };
           });
 
           const dimensionY = SVG_HEIGHT - MARGIN + 12;
-          const dimensionLineStart = MARGIN;
-          const dimensionLineEnd = MARGIN + view.dimensionValue * scaleX;
+          const baseLineStart = MARGIN + view.baseStart * scaleX;
+          const baseLineEnd = MARGIN + view.baseEnd * scaleX;
 
           return (
             <article
@@ -82,49 +130,79 @@ export const ElevationViews: React.FC = () => {
                 />
                 {transformedFloors.map((floor) => (
                   <g key={floor.floorId}>
-                    <polyline
-                      points={toSvgPoints([...floor.svgPoints, floor.svgPoints[0]])}
-                      fill="none"
-                      stroke={floor.color}
-                      strokeWidth={2}
-                    />
-                    <line
-                      x1={floor.roofLine[0].x}
-                      y1={floor.roofLine[0].y}
-                      x2={floor.roofLine[1].x}
-                      y2={floor.roofLine[1].y}
-                      stroke={floor.color}
-                      strokeDasharray="6 4"
-                      strokeWidth={2}
-                    />
+                    {floor.svgFragments.map((fragment) => (
+                      <g key={fragment.id}>
+                        <polyline
+                          points={toSvgPoints([...fragment.svgPoints, fragment.svgPoints[0]])}
+                          fill="none"
+                          stroke={floor.color}
+                          strokeWidth={2}
+                        />
+                        <line
+                          x1={fragment.roofLine[0].x}
+                          y1={fragment.roofLine[0].y}
+                          x2={fragment.roofLine[1].x}
+                          y2={fragment.roofLine[1].y}
+                          stroke={floor.color}
+                          strokeDasharray="6 4"
+                          strokeWidth={2}
+                        />
+                      </g>
+                    ))}
                   </g>
                 ))}
+                {scaledEaveLines.map((line) => (
+                  line.visible ? (
+                    <line
+                      key={`${view.direction}-${line.floorId}-${line.start.x}-${line.start.y}`}
+                      x1={line.start.x}
+                      y1={line.start.y}
+                      x2={line.end.x}
+                      y2={line.end.y}
+                      stroke={line.color}
+                      strokeDasharray="1 5"
+                      strokeLinecap="round"
+                      strokeWidth={1.5}
+                      data-testid="elevation-eave-line"
+                    />
+                  ) : null
+                ))}
+                {scaledRoofOutline.length >= 2 && (
+                  <polyline
+                    points={toSvgPoints(scaledRoofOutline)}
+                    fill="none"
+                    stroke={view.roofColor}
+                    strokeDasharray="6 4"
+                    strokeWidth={2}
+                    data-testid="elevation-roof-outline"
+                  />
+                )}
                 <line
-                  x1={dimensionLineStart}
+                  x1={baseLineStart}
                   y1={dimensionY}
-                  x2={dimensionLineEnd}
+                  x2={baseLineEnd}
                   y2={dimensionY}
                   stroke="#1f2937"
                   strokeWidth={1.5}
                 />
                 <line
-                  x1={dimensionLineStart}
+                  x1={baseLineStart}
                   y1={dimensionY - 6}
-                  x2={dimensionLineStart}
+                  x2={baseLineStart}
                   y2={dimensionY + 6}
                   stroke="#1f2937"
                   strokeWidth={1.5}
                 />
                 <line
-                  x1={dimensionLineEnd}
+                  x1={baseLineEnd}
                   y1={dimensionY - 6}
-                  x2={dimensionLineEnd}
+                  x2={baseLineEnd}
                   y2={dimensionY + 6}
                   stroke="#1f2937"
                   strokeWidth={1.5}
                 />
                 <text
-                  x={(dimensionLineStart + dimensionLineEnd) / 2}
+                  x={(baseLineStart + baseLineEnd) / 2}
                   y={dimensionY + 16}
                   textAnchor="middle"
                   className="font-mono"
@@ -133,6 +211,53 @@ export const ElevationViews: React.FC = () => {
                 >
                   {view.dimensionLabel}
                 </text>
+                {view.showDimensions && (
+                  <g data-testid="elevation-dimensions">
+                    {scaledHeightDimensions.map((line) => (
+                      <g key={`${view.direction}-height-${line.floorId}`}>
+                        <line
+                          x1={line.start.x}
+                          y1={line.start.y}
+                          x2={line.end.x}
+                          y2={line.end.y}
+                          stroke={DIMENSION_COLOR}
+                          strokeWidth={1}
+                          data-testid="elevation-height-dimension"
+                        />
+                        <text
+                          x={line.start.x + 4}
+                          y={(line.start.y + line.end.y) / 2}
+                          fontSize={10}
+                          fill={DIMENSION_COLOR}
+                        >
+                          {`${line.label}mm`}
+                        </text>
+                      </g>
+                    ))}
+
+                    {scaledEaveDimensions.map((line, index) => (
+                      <g key={`${view.direction}-eave-dim-${line.floorId}-${index}`}>
+                        <line
+                          x1={line.start.x}
+                          y1={line.start.y}
+                          x2={line.end.x}
+                          y2={line.end.y}
+                          stroke={DIMENSION_COLOR}
+                          strokeWidth={1}
+                          data-testid="elevation-eave-dimension"
+                        />
+                        <text
+                          x={line.start.x + 4}
+                          y={(line.start.y + line.end.y) / 2}
+                          fontSize={10}
+                          fill={DIMENSION_COLOR}
+                        >
+                          {`${line.label}mm`}
+                        </text>
+                      </g>
+                    ))}
+                  </g>
+                )}
                 </svg>
               </div>
 

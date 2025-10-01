@@ -40,6 +40,7 @@ export interface ConstraintState {
   gridVisible: boolean;
   gridSpacing: number;
   dimensionVisible: boolean;
+  dimensionVisibleElevation: boolean;
 }
 
 export const DEFAULT_CONSTRAINT_STATE: ConstraintState = {
@@ -47,7 +48,8 @@ export const DEFAULT_CONSTRAINT_STATE: ConstraintState = {
   gridSnap: false,
   gridVisible: true,
   gridSpacing: 100,
-  dimensionVisible: true
+  dimensionVisible: true,
+  dimensionVisibleElevation: true
 };
 
 const isPoint = (value: unknown): value is Point => (

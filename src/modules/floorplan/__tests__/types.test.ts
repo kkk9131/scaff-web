@@ -53,6 +53,7 @@ describe('Floorplan type helpers', () => {
 
   it('exposes default constraint state with 100mm grid spacing', () => {
     expect(DEFAULT_CONSTRAINT_STATE.gridSpacing).toBe(100);
+    expect(DEFAULT_CONSTRAINT_STATE.dimensionVisibleElevation).toBe(true);
   });
 
   it('identifies valid eave config objects', () => {

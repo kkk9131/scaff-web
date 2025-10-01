@@ -8,7 +8,7 @@ const createFloor = (polygon: Point[]): FloorModel => ({
   polygon,
   dimensions: polygon.map((point, index) => ({ edgeId: `edge-${index}`, length: 0, offset: 0 })),
   height: 3000,
-  roof: { type: 'flat', slopeValue: 0 },
+  roof: { type: 'flat', slopeValue: 0, ridgeHeight: 3000, parapetHeight: 0 },
   style: {
     strokeColor: '#2563eb',
     roofStrokeColor: '#000000',
@@ -35,7 +35,8 @@ describe('CanvasConstraintController', () => {
         gridSnap: true,
         gridVisible: true,
         gridSpacing: 100,
-        dimensionVisible: true
+        dimensionVisible: true,
+        dimensionVisibleElevation: true
       }
     });
     expect(result).toEqual({ x: 1200, y: 500 });
@@ -57,7 +58,8 @@ describe('CanvasConstraintController', () => {
         gridSnap: false,
         gridVisible: true,
         gridSpacing: 100,
-        dimensionVisible: true
+        dimensionVisible: true,
+        dimensionVisibleElevation: true
       }
     });
     expect(result.x === 6000 || result.y === 0 || result.y === 4000).toBe(true);
@@ -73,7 +75,8 @@ describe('CanvasConstraintController', () => {
         gridSnap: false,
         gridVisible: true,
         gridSpacing: 100,
-        dimensionVisible: true
+        dimensionVisible: true,
+        dimensionVisibleElevation: true
       }
     });
     expect(result).toEqual(point);

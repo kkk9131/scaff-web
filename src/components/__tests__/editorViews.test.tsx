@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { BuildingProvider } from '../../context/BuildingProvider';
 import { PlanViewCanvas } from '../PlanViewCanvas';
 import { TemplateSidebarSection } from '../sidebar/TemplateSidebarSection';
+import { RoofSidebarSection } from '../sidebar/RoofSidebarSection';
 import { DrawingSupportToolbar } from '../DrawingSupportToolbar';
 import { DimensionPanel } from '../DimensionPanel';
 import { ElevationViews } from '../ElevationViews';
@@ -122,6 +123,7 @@ describe('Editor views integration', () => {
       <BuildingProvider initialTemplate="rectangle">
       <div>
         <TemplateSidebarSection />
+        <RoofSidebarSection />
         <DrawingSupportToolbar />
         <PlanViewCanvas />
         <DimensionPanel />
@@ -181,6 +183,13 @@ describe('Editor views integration', () => {
       expect(eaveDimensionLines).toBeGreaterThan(0);
     });
 
+    await waitFor(() => {
+      const elevationEaveLines = screen.getAllByTestId('elevation-eave-line');
+      expect(elevationEaveLines.length).toBeGreaterThan(0);
+    });
+
+    expect(screen.getAllByTestId('elevation-roof-outline').length).toBeGreaterThan(0);
+
     const eaveLine = document.querySelector('[data-testid="plan-eave-line"]');
     expect(eaveLine?.getAttribute('data-stroke')).toBe('#2563eb');
 
@@ -213,6 +222,20 @@ describe('Editor views integration', () => {
       expect(totalLines).toBe(4);
       const eaveLines = document.querySelectorAll('[data-testid="plan-dimension-line-eave"]').length;
       expect(eaveLines).toBe(eaveLinesInitial);
+    });
+  });
+
+  it('toggles elevation dimension visibility through roof controls', async () => {
+    const user = userEvent.setup();
+    renderEditor();
+
+    expect(screen.getAllByTestId('elevation-dimensions').length).toBeGreaterThan(0);
+
+    const toggleButton = screen.getByRole('button', { name: '立面寸法表示' });
+    await user.click(toggleButton);
+
+    await waitFor(() => {
+      expect(screen.queryAllByTestId('elevation-dimensions').length).toBe(0);
     });
   });
 

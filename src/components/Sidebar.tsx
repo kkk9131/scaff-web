@@ -5,6 +5,7 @@ import { DimensionPanel } from './DimensionPanel';
 import { DrawingSupportToolbar } from './DrawingSupportToolbar';
 import { OutputToolbar } from './OutputToolbar';
 import { TemplateSidebarSection } from './sidebar/TemplateSidebarSection';
+import { RoofSidebarSection } from './sidebar/RoofSidebarSection';
 import { X, Settings, Layers, FileText, Square, Wand2, Shapes } from 'lucide-react';
 
 interface SidebarProps {
@@ -15,6 +16,7 @@ interface SidebarProps {
 export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
     template: false,
+    roof: true,
     output: false,
     drawing: false,
     dimension: true
@@ -73,6 +75,27 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
             {openSections.template && (
               <div className="mt-2 bg-slate-700 p-3 rounded-lg">
                 <TemplateSidebarSection />
+              </div>
+            )}
+          </section>
+
+          {/* セクション: 屋根設定 */}
+          <section>
+            <button
+              type="button"
+              onClick={() => toggleSection('roof')}
+              className="w-full flex items-center justify-between rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-sm text-slate-200 hover:bg-slate-700 transition-colors"
+              aria-expanded={openSections.roof}
+            >
+              <span className="flex items-center gap-2">
+                <Layers className="w-4 h-4" />
+                屋根設定
+              </span>
+              <span>{openSections.roof ? '−' : '+'}</span>
+            </button>
+            {openSections.roof && (
+              <div className="mt-2 bg-slate-700 p-3 rounded-lg">
+                <RoofSidebarSection />
               </div>
             )}
           </section>

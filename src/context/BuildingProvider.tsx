@@ -24,6 +24,8 @@ export interface EdgeDimension {
 export interface RoofConfig {
   type: RoofType;
   slopeValue: number;
+  ridgeHeight: number;
+  parapetHeight: number;
 }
 
 export type DrawingModes = ConstraintState;
@@ -70,6 +72,8 @@ export interface ValidationResult {
 
 const BASE_HEIGHT = 3000;
 const DEFAULT_SLOPE = 0;
+const DEFAULT_RIDGE_INCREMENT = 0;
+const DEFAULT_PARAPET_HEIGHT = 0;
 
 export const DEFAULT_DRAWING_MODES: DrawingModes = {
   ...DEFAULT_CONSTRAINT_STATE
@@ -221,7 +225,12 @@ export const createInitialBuildingModel = (template: TemplateType): BuildingMode
     polygon,
     dimensions: createDimensions(floorId, polygon),
     height: BASE_HEIGHT,
-    roof: { type: 'flat', slopeValue: DEFAULT_SLOPE },
+    roof: {
+      type: 'flat',
+      slopeValue: DEFAULT_SLOPE,
+      ridgeHeight: BASE_HEIGHT + DEFAULT_RIDGE_INCREMENT,
+      parapetHeight: DEFAULT_PARAPET_HEIGHT
+    },
     style: generateFloorStyle(0),
     locked: false
   };
@@ -286,8 +295,24 @@ export const validateBuildingModel = (model: BuildingModel): ValidationResult =>
 
     if (!floor.roof) {
       errors.push(`${floor.name} の屋根情報が不足しています。`);
-    } else if (!['flat', 'mono', 'gable', 'hip'].includes(floor.roof.type)) {
-      errors.push(`${floor.name} の屋根タイプが無効です。`);
+    } else {
+      if (!['flat', 'mono', 'gable', 'hip'].includes(floor.roof.type)) {
+        errors.push(`${floor.name} の屋根タイプが無効です。`);
+      }
+      if (
+        typeof floor.roof.ridgeHeight !== 'number' ||
+        Number.isNaN(floor.roof.ridgeHeight) ||
+        floor.roof.ridgeHeight < floor.height
+      ) {
+        errors.push(`${floor.name} の屋根最高高さが正しくありません。`);
+      }
+      if (
+        typeof floor.roof.parapetHeight !== 'number' ||
+        Number.isNaN(floor.roof.parapetHeight) ||
+        floor.roof.parapetHeight < 0
+      ) {
+        errors.push(`${floor.name} の立ち上がり高さが正しくありません。`);
+      }
     }
 
     if (typeof floor.locked !== 'boolean') {
@@ -347,6 +372,7 @@ export type BuildingAction =
   | { type: 'selectEdge'; edgeId: string | null }
   | { type: 'setDrawingMode'; mode: ToggleableDrawingMode; value: boolean }
   | { type: 'generateEaveOffsets'; floorId: string; offset: number }
+  | { type: 'updateEaveOffset'; floorId: string; offset: number }
   | { type: 'toggleFloorLock'; floorId: string; locked: boolean }
   | { type: 'setActiveFloor'; floorId: string }
   | { type: 'updateVertex'; floorId: string; vertexIndex: number; point: Point }
@@ -679,24 +705,97 @@ export const buildingReducer = (state: BuildingModel, action: BuildingAction): B
     }
     case 'updateRoof': {
       const { floorId, roof } = action;
-      if (roof.type && !['flat', 'mono', 'gable', 'hip'].includes(roof.type)) {
-        return { ...state, lastError: '屋根タイプが無効です。' };
-      }
-      if (roof.slopeValue !== undefined && roof.slopeValue < 0) {
-        return { ...state, lastError: '屋根勾配は0以上で指定してください。' };
+      return applyFloorUpdate(
+        state,
+        floorId,
+        (floor) => {
+          const nextType = (roof.type ?? floor.roof.type) as RoofType;
+          if (!['flat', 'mono', 'gable', 'hip'].includes(nextType)) {
+            return noChange(floor, '屋根タイプが無効です。');
+          }
+
+          const rawSlope = roof.slopeValue !== undefined ? Number(roof.slopeValue) : floor.roof.slopeValue;
+          if (roof.slopeValue !== undefined && (!Number.isFinite(rawSlope) || rawSlope < 0)) {
+            return noChange(floor, '屋根勾配は0以上で指定してください。');
+          }
+
+          const requestedSlope = Number.isFinite(rawSlope) ? rawSlope : floor.roof.slopeValue;
+
+          const rawRidge =
+            roof.ridgeHeight !== undefined ? Number(roof.ridgeHeight) : floor.roof.ridgeHeight;
+
+          const rawParapet =
+            roof.parapetHeight !== undefined ? Number(roof.parapetHeight) : floor.roof.parapetHeight;
+
+          if (roof.parapetHeight !== undefined && (!Number.isFinite(rawParapet) || rawParapet < 0)) {
+            return noChange(floor, '立ち上がりは0以上で指定してください。');
+          }
+
+          let slopeValue = Number.isFinite(requestedSlope) ? Math.max(0, requestedSlope) : 0;
+          let ridgeHeight = Number.isFinite(rawRidge) ? rawRidge : floor.roof.ridgeHeight;
+          let parapetHeight = Math.max(0, Number.isFinite(rawParapet) ? rawParapet : 0);
+
+          if (nextType === 'flat') {
+            slopeValue = 0;
+            const parapetTop = floor.height + parapetHeight;
+            ridgeHeight = Math.max(parapetTop, floor.height);
+          } else {
+            parapetHeight = 0;
+            if (
+              roof.ridgeHeight !== undefined &&
+              (!Number.isFinite(rawRidge) || rawRidge < floor.height)
+            ) {
+              return noChange(floor, '屋根最高高さは階高以上で指定してください。');
+            }
+            ridgeHeight = Number.isFinite(rawRidge) ? rawRidge : floor.roof.ridgeHeight;
+            if (!Number.isFinite(ridgeHeight) || ridgeHeight < floor.height) {
+              return noChange(floor, '屋根最高高さは階高以上で指定してください。');
+            }
+          }
+
+          if (!Number.isFinite(ridgeHeight)) {
+            return noChange(floor, '屋根最高高さが無効です。');
+          }
+
+          const nextRoof: RoofConfig = {
+            type: nextType,
+            slopeValue,
+            ridgeHeight,
+            parapetHeight
+          };
+
+          if (
+            nextRoof.type === floor.roof.type &&
+            nextRoof.slopeValue === floor.roof.slopeValue &&
+            nextRoof.ridgeHeight === floor.roof.ridgeHeight &&
+            nextRoof.parapetHeight === floor.roof.parapetHeight
+          ) {
+            return noChange(floor);
+          }
+
+          return withChange({ ...floor, roof: nextRoof });
+        },
+        '対象の階層が見つかりません。'
+      );
+    }
+    case 'updateEaveOffset': {
+      const { floorId, offset } = action;
+      const normalized = Number(offset);
+      if (!Number.isFinite(normalized) || normalized < 0) {
+        return { ...state, lastError: '軒の出は0以上で指定してください。' };
       }
       return applyFloorUpdate(
         state,
         floorId,
         (floor) => {
-          const nextRoof = { ...floor.roof, ...roof };
-          if (
-            nextRoof.type === floor.roof.type &&
-            nextRoof.slopeValue === floor.roof.slopeValue
-          ) {
+          const nextDimensions = floor.dimensions.map((dimension) =>
+            dimension.offset === normalized ? dimension : { ...dimension, offset: normalized }
+          );
+          const changed = nextDimensions.some((dimension, index) => dimension !== floor.dimensions[index]);
+          if (!changed) {
             return noChange(floor);
           }
-          return withChange({ ...floor, roof: nextRoof });
+          return withChange({ ...floor, dimensions: nextDimensions });
         },
         '対象の階層が見つかりません。'
       );
@@ -713,7 +812,12 @@ export const buildingReducer = (state: BuildingModel, action: BuildingAction): B
       const polygon = sourceFloor
         ? clonePolygon(sourceFloor.polygon)
         : clonePolygon(templateResolution.shape!.vertices);
-      const roof = sourceFloor?.roof ?? { type: 'flat', slopeValue: DEFAULT_SLOPE };
+      const roof = sourceFloor?.roof ?? {
+        type: 'flat',
+        slopeValue: DEFAULT_SLOPE,
+        ridgeHeight: BASE_HEIGHT + DEFAULT_RIDGE_INCREMENT,
+        parapetHeight: DEFAULT_PARAPET_HEIGHT
+      };
       const newFloor: FloorModel = {
         id: newId,
         name: floorNameForIndex(newIndex),

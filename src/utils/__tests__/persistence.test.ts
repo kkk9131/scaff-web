@@ -46,7 +46,8 @@ describe('building state persistence', () => {
         gridSnap: false,
         gridVisible: true,
         gridSpacing: 100,
-        dimensionVisible: true
+        dimensionVisible: true,
+        dimensionVisibleElevation: true
       },
       lastError: null
     } as any;
@@ -80,7 +81,8 @@ describe('building state persistence', () => {
       gridSnap: false,
       gridVisible: true,
       gridSpacing: 100,
-      dimensionVisible: true
+      dimensionVisible: true,
+      dimensionVisibleElevation: true
     });
     expect(result.data?.floors.every((floor) => floor.locked === false)).toBe(true);
   });

@@ -2,10 +2,10 @@
 
 import React from 'react';
 import { buildElevationData } from '../utils/geometry';
-import type { ElevationOutline } from '../utils/geometry';
+import type { ElevationOutline, ElevationDirection } from '../utils/geometry';
 import { buildEaveSegments } from '../utils/eaveOffset';
 import { useBuildingState } from '../context/BuildingProvider';
-import type { FloorModel } from '../context/BuildingProvider';
+import type { FloorModel, CardinalDirection } from '../context/BuildingProvider';
 
 const SVG_WIDTH = 320;
 const SVG_HEIGHT = 220;
@@ -28,6 +28,23 @@ interface TransformedElevationFloor extends ElevationOutline {
   roofStrokeColor: string;
   roofDash: [number, number];
 }
+
+const OPPOSITE_DIRECTION: Record<CardinalDirection, CardinalDirection> = {
+  north: 'south',
+  south: 'north',
+  east: 'west',
+  west: 'east'
+};
+
+const VIEW_LATERAL_SIDES: Record<ElevationDirection, { left: CardinalDirection; right: CardinalDirection }> = {
+  north: { left: 'west', right: 'east' },
+  south: { left: 'east', right: 'west' },
+  east: { left: 'north', right: 'south' },
+  west: { left: 'south', right: 'north' }
+};
+
+const mapHeightToSvg = (heightMm: number, scaleY: number): number =>
+  SVG_HEIGHT - MARGIN - heightMm * scaleY;
 
 const projectValue = (point: { x: number; y: number }, axis: Axis): number =>
   axis === 'x' ? point.x : point.y;
@@ -84,9 +101,23 @@ export const ElevationViews: React.FC = () => {
           const topFloorRaw = view.floors[view.floors.length - 1];
           const topSourceFloor = state.floors.find((item) => item.id === topFloorRaw?.floorId);
           const isFlatRoof = topSourceFloor?.roof.type === 'flat';
-          const rawOffsets = isFlatRoof && topSourceFloor ? computeEaveOffsets(topSourceFloor, axis) : { negative: 0, positive: 0 };
-          const leftOffsetMm = Math.max(0, rawOffsets.negative);
-          const rightOffsetMm = Math.max(0, rawOffsets.positive);
+          const isMonoRoof = topSourceFloor?.roof.type === 'mono';
+          const viewDirection = view.direction as CardinalDirection;
+          const eaveOffsets = topSourceFloor ? computeEaveOffsets(topSourceFloor, axis) : { negative: 0, positive: 0 };
+          const leftOffsetMm = Math.max(0, eaveOffsets.negative);
+          const rightOffsetMm = Math.max(0, eaveOffsets.positive);
+
+          const monoLowDirection = isMonoRoof ? topSourceFloor?.roof.lowSideDirection : undefined;
+          const monoHighDirection = monoLowDirection ? OPPOSITE_DIRECTION[monoLowDirection] : undefined;
+          const isLowFace = isMonoRoof && monoLowDirection === viewDirection;
+          const isHighFace = isMonoRoof && monoHighDirection === viewDirection;
+          const isMonoPerpendicularFace = isMonoRoof && !isLowFace && !isHighFace;
+
+          const lowHeightAbs = topFloorRaw ? topFloorRaw.base + topFloorRaw.height : 0;
+          const ridgeRelative = topSourceFloor?.roof.ridgeHeight ?? topSourceFloor?.height ?? topFloorRaw?.height ?? 0;
+          const highHeightAbs = topFloorRaw ? topFloorRaw.base + ridgeRelative : lowHeightAbs;
+
+          const lateralSides = VIEW_LATERAL_SIDES[view.direction];
 
           const dimensionBaseMm = view.dimensionValue;
           const totalSpanMm = dimensionBaseMm + leftOffsetMm + rightOffsetMm;
@@ -121,73 +152,268 @@ export const ElevationViews: React.FC = () => {
           const showDimensions = state.modes.dimensionVisibleElevation;
           const topFloorData = transformedFloors[transformedFloors.length - 1];
 
-          const flatRoofSegments: React.ReactNode[] = [];
+          const roofOverlaySegments: React.ReactNode[] = [];
 
-          if (isFlatRoof && topFloorData && topSourceFloor) {
+          if (topFloorData && topSourceFloor) {
             const leftOffset = leftOffsetMm;
             const rightOffset = rightOffsetMm;
-            const parapetHeight = Math.max(0, topSourceFloor.roof.parapetHeight ?? 0);
+            const stroke = topFloorData.color;
+            const dash = dashPattern(topFloorData.roofDash);
+            const wallStrokeWidth = topFloorData.sourceFloor?.style.strokeWidth ?? 2;
+            const lowTopSvgY = mapHeightToSvg(lowHeightAbs, scaleY);
+            const highTopSvgY = mapHeightToSvg(highHeightAbs, scaleY);
 
-            if (parapetHeight > 0 || leftOffset > 0 || rightOffset > 0) {
-              const wallLeftX = topFloorData.roofLine[0].x;
-              const wallRightX = topFloorData.roofLine[1].x;
-              const wallTopY = topFloorData.roofLine[0].y;
-              const roofLeftX = wallLeftX - leftOffset * scaleX;
-              const roofRightX = wallRightX + rightOffset * scaleX;
-              const roofBottomY = wallTopY;
-              const roofTopY = roofBottomY - parapetHeight * scaleY;
-              const stroke = topFloorData.color;
-              const dash = dashPattern(topFloorData.roofDash);
+            if (isFlatRoof) {
+              const parapetHeight = Math.max(0, topSourceFloor.roof.parapetHeight ?? 0);
 
-              const leftVerticalX = parapetHeight > 0 ? (leftOffset > 0 ? roofLeftX : wallLeftX) : roofLeftX;
-              const rightVerticalX = parapetHeight > 0 ? (rightOffset > 0 ? roofRightX : wallRightX) : roofRightX;
+              if (parapetHeight > 0 || leftOffset > 0 || rightOffset > 0) {
+                const wallLeftX = topFloorData.roofLine[0].x;
+                const wallRightX = topFloorData.roofLine[1].x;
+                const wallTopY = topFloorData.roofLine[0].y;
+                const roofLeftX = wallLeftX - leftOffset * scaleX;
+                const roofRightX = wallRightX + rightOffset * scaleX;
+                const roofBottomY = wallTopY;
+                const roofTopY = roofBottomY - parapetHeight * scaleY;
 
-              const outlinePoints: SvgPoint[] = [
-                { x: leftVerticalX, y: roofBottomY },
-                { x: leftVerticalX, y: roofTopY },
-                { x: rightVerticalX, y: roofTopY },
-                { x: rightVerticalX, y: roofBottomY }
-              ];
+                const leftVerticalX = parapetHeight > 0 ? (leftOffset > 0 ? roofLeftX : wallLeftX) : roofLeftX;
+                const rightVerticalX = parapetHeight > 0 ? (rightOffset > 0 ? roofRightX : wallRightX) : roofRightX;
 
-              flatRoofSegments.push(
-                <polyline
-                  key="flat-roof-outline"
-                  data-testid="elevation-eave-line"
-                  points={toSvgPoints(outlinePoints)}
-                  fill="none"
-                  stroke={stroke}
-                  strokeWidth={2}
-                  strokeDasharray={dash}
-                />
-              );
+                const outlinePoints: SvgPoint[] = [
+                  { x: leftVerticalX, y: roofBottomY },
+                  { x: leftVerticalX, y: roofTopY },
+                  { x: rightVerticalX, y: roofTopY },
+                  { x: rightVerticalX, y: roofBottomY }
+                ];
 
-              if (leftOffset > 0) {
-                flatRoofSegments.push(
-                  <line
-                    key="flat-roof-bottom-left"
+                roofOverlaySegments.push(
+                  <polyline
+                    key="flat-roof-outline"
                     data-testid="elevation-eave-line"
-                    x1={roofLeftX}
-                    y1={roofBottomY}
-                    x2={wallLeftX}
-                    y2={roofBottomY}
+                    points={toSvgPoints(outlinePoints)}
+                    fill="none"
                     stroke={stroke}
                     strokeWidth={2}
                     strokeDasharray={dash}
                   />
                 );
+
+                if (leftOffset > 0) {
+                  roofOverlaySegments.push(
+                    <line
+                      key="flat-roof-bottom-left"
+                      data-testid="elevation-eave-line"
+                      x1={roofLeftX}
+                      y1={roofBottomY}
+                      x2={wallLeftX}
+                      y2={roofBottomY}
+                      stroke={stroke}
+                      strokeWidth={2}
+                      strokeDasharray={dash}
+                    />
+                  );
+                }
+
+                if (rightOffset > 0) {
+                  roofOverlaySegments.push(
+                    <line
+                      key="flat-roof-bottom-right"
+                      data-testid="elevation-eave-line"
+                      x1={wallRightX}
+                      y1={roofBottomY}
+                      x2={roofRightX}
+                      y2={roofBottomY}
+                      stroke={stroke}
+                      strokeWidth={2}
+                      strokeDasharray={dash}
+                    />
+                  );
+                }
+              }
+            } else if (isMonoRoof) {
+              const bottomLeft = topFloorData.svgPoints[0];
+              const bottomRight = topFloorData.svgPoints[1];
+              const wallLeftX = bottomLeft?.x ?? 0;
+              const wallRightX = bottomRight?.x ?? SVG_WIDTH - MARGIN;
+              let leftTopY = lowTopSvgY;
+              let rightTopY = lowTopSvgY;
+
+              if (isHighFace) {
+                leftTopY = highTopSvgY;
+                rightTopY = highTopSvgY;
+              } else if (isMonoPerpendicularFace && monoHighDirection) {
+                const leftDir = lateralSides.left;
+                const rightDir = lateralSides.right;
+                leftTopY = leftDir === monoHighDirection ? highTopSvgY : leftTopY;
+                rightTopY = rightDir === monoHighDirection ? highTopSvgY : rightTopY;
               }
 
-              if (rightOffset > 0) {
-                flatRoofSegments.push(
-                  <line
-                    key="flat-roof-bottom-right"
-                    data-testid="elevation-eave-line"
-                    x1={wallRightX}
-                    y1={roofBottomY}
-                    x2={roofRightX}
-                    y2={roofBottomY}
+              if (topFloorData.svgPoints.length >= 4) {
+                const updatedPoints = [...topFloorData.svgPoints];
+                updatedPoints[3] = { x: wallLeftX, y: leftTopY };
+                updatedPoints[2] = { x: wallRightX, y: rightTopY };
+                topFloorData.svgPoints = updatedPoints;
+              }
+
+              const eaveLeftX = wallLeftX - leftOffset * scaleX;
+              const eaveRightX = wallRightX + rightOffset * scaleX;
+              const leftExtensionPx = leftOffset * scaleX;
+              const rightExtensionPx = rightOffset * scaleX;
+              const wallSpanPx = Math.max(0, wallRightX - wallLeftX);
+              let roofLeftY = leftTopY;
+              let roofRightY = rightTopY;
+
+              if (wallSpanPx > 0) {
+                const slopePerPx = (rightTopY - leftTopY) / wallSpanPx;
+                roofLeftY = leftTopY - slopePerPx * leftExtensionPx;
+                roofRightY = rightTopY + slopePerPx * rightExtensionPx;
+              }
+
+              const roofLeftPoint: SvgPoint = { x: eaveLeftX, y: roofLeftY };
+              const roofRightPoint: SvgPoint = { x: eaveRightX, y: roofRightY };
+              topFloorData.roofLine = [roofLeftPoint, roofRightPoint];
+
+              const eaveThicknessPx = Math.max(4, Math.min(14, 6 + scaleY * 6));
+
+              if (isLowFace || isHighFace) {
+                const baseY = isLowFace ? lowTopSvgY : highTopSvgY;
+                const rectHeight = eaveThicknessPx;
+                const rectY = baseY - rectHeight;
+                const eaveWidth = eaveRightX - eaveLeftX;
+                roofOverlaySegments.push(
+                  <rect
+                    key="mono-face-eave"
+                    x={eaveLeftX}
+                    y={rectY}
+                    width={eaveWidth}
+                    height={rectHeight}
+                    fill={stroke}
+                    fillOpacity={0.12}
                     stroke={stroke}
-                    strokeWidth={2}
+                    strokeWidth={1.5}
+                    strokeDasharray={dash}
+                  />
+                );
+
+                if (isLowFace) {
+                  roofOverlaySegments.push(
+                    <line
+                      key="mono-low-vertical-left"
+                      x1={eaveLeftX}
+                      y1={lowTopSvgY}
+                      x2={eaveLeftX}
+                      y2={highTopSvgY}
+                      stroke={stroke}
+                      strokeWidth={2}
+                      strokeDasharray={dash}
+                    />
+                  );
+                  roofOverlaySegments.push(
+                    <line
+                      key="mono-low-top"
+                      x1={eaveLeftX}
+                      y1={highTopSvgY}
+                      x2={eaveRightX}
+                      y2={highTopSvgY}
+                      stroke={stroke}
+                      strokeWidth={2}
+                      strokeDasharray={dash}
+                    />
+                  );
+                  roofOverlaySegments.push(
+                    <line
+                      key="mono-low-vertical-right"
+                      x1={eaveRightX}
+                      y1={lowTopSvgY}
+                      x2={eaveRightX}
+                      y2={highTopSvgY}
+                      stroke={stroke}
+                      strokeWidth={2}
+                      strokeDasharray={dash}
+                    />
+                  );
+                  if (leftOffset > 0) {
+                    roofOverlaySegments.push(
+                      <line
+                        key="mono-low-bottom-left"
+                        x1={eaveLeftX}
+                        y1={lowTopSvgY}
+                        x2={wallLeftX}
+                        y2={lowTopSvgY}
+                        stroke={stroke}
+                        strokeWidth={2}
+                        strokeDasharray={dash}
+                      />
+                    );
+                  }
+                  if (rightOffset > 0) {
+                    roofOverlaySegments.push(
+                      <line
+                        key="mono-low-bottom-right"
+                        x1={wallRightX}
+                        y1={lowTopSvgY}
+                        x2={eaveRightX}
+                        y2={lowTopSvgY}
+                        stroke={stroke}
+                        strokeWidth={2}
+                        strokeDasharray={dash}
+                      />
+                    );
+                  }
+
+                  topFloorData.roofLine = [
+                    { x: eaveLeftX, y: highTopSvgY },
+                    { x: eaveRightX, y: highTopSvgY }
+                  ];
+                } else if (isHighFace) {
+                  if (leftOffset > 0) {
+                    roofOverlaySegments.push(
+                      <line
+                        key="mono-high-overhang-left"
+                        x1={eaveLeftX}
+                        y1={highTopSvgY}
+                        x2={wallLeftX}
+                        y2={highTopSvgY}
+                        stroke={stroke}
+                        strokeWidth={2}
+                        strokeDasharray={dash}
+                      />
+                    );
+                  }
+                  if (rightOffset > 0) {
+                    roofOverlaySegments.push(
+                      <line
+                        key="mono-high-overhang-right"
+                        x1={wallRightX}
+                        y1={highTopSvgY}
+                        x2={eaveRightX}
+                        y2={highTopSvgY}
+                        stroke={stroke}
+                        strokeWidth={2}
+                        strokeDasharray={dash}
+                      />
+                    );
+                  }
+
+                  topFloorData.roofLine = [
+                    { x: wallLeftX, y: highTopSvgY },
+                    { x: wallRightX, y: highTopSvgY }
+                  ];
+                }
+              } else if (isMonoPerpendicularFace) {
+                const polygonPoints: SvgPoint[] = [
+                  { x: eaveLeftX, y: roofLeftY },
+                  { x: eaveRightX, y: roofRightY },
+                  { x: eaveRightX, y: roofRightY - eaveThicknessPx },
+                  { x: eaveLeftX, y: roofLeftY - eaveThicknessPx }
+                ];
+                roofOverlaySegments.push(
+                  <polygon
+                    key="mono-slope-eave"
+                    points={toSvgPoints(polygonPoints)}
+                    fill={stroke}
+                    fillOpacity={0.12}
+                    stroke={stroke}
+                    strokeWidth={1.5}
                     strokeDasharray={dash}
                   />
                 );
@@ -250,8 +476,8 @@ export const ElevationViews: React.FC = () => {
                     </g>
                   );
                 })}
-                {flatRoofSegments.length > 0 && (
-                  <g data-testid="elevation-roof-outline">{flatRoofSegments}</g>
+                {roofOverlaySegments.length > 0 && (
+                  <g data-testid="elevation-roof-outline">{roofOverlaySegments}</g>
                 )}
                 {showDimensions && (
                   <g data-testid="elevation-dimensions">

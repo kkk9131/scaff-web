@@ -24,6 +24,7 @@ interface SvgPoint {
 interface TransformedElevationFloor extends ElevationOutline {
   svgPoints: SvgPoint[];
   roofLine: [SvgPoint, SvgPoint];
+  roofSegments: Array<[SvgPoint, SvgPoint]>;
   sourceFloor?: FloorModel;
   roofStrokeColor: string;
   roofDash: [number, number];
@@ -79,6 +80,22 @@ const computeEaveOffsets = (floor: FloorModel | undefined, axis: Axis) => {
   } as const;
 };
 
+const computePlanSpan = (floor: FloorModel | undefined, axis: Axis) => {
+  if (!floor || floor.polygon.length < 2) {
+    return 0;
+  }
+
+  let minValue = Infinity;
+  let maxValue = -Infinity;
+  floor.polygon.forEach((point) => {
+    const value = projectValue(point, axis);
+    minValue = Math.min(minValue, value);
+    maxValue = Math.max(maxValue, value);
+  });
+
+  return Math.max(0, maxValue - minValue);
+};
+
 const dashPattern = (dash?: [number, number]) => (dash ? dash.join(' ') : '6 4');
 
 export const ElevationViews: React.FC = () => {
@@ -102,6 +119,7 @@ export const ElevationViews: React.FC = () => {
           const topSourceFloor = state.floors.find((item) => item.id === topFloorRaw?.floorId);
           const isFlatRoof = topSourceFloor?.roof.type === 'flat';
           const isMonoRoof = topSourceFloor?.roof.type === 'mono';
+          const isGableRoof = topSourceFloor?.roof.type === 'gable';
           const viewDirection = view.direction as CardinalDirection;
           const eaveOffsets = topSourceFloor ? computeEaveOffsets(topSourceFloor, axis) : { negative: 0, positive: 0 };
           const leftOffsetMm = Math.max(0, eaveOffsets.negative);
@@ -112,6 +130,11 @@ export const ElevationViews: React.FC = () => {
           const isLowFace = isMonoRoof && monoLowDirection === viewDirection;
           const isHighFace = isMonoRoof && monoHighDirection === viewDirection;
           const isMonoPerpendicularFace = isMonoRoof && !isLowFace && !isHighFace;
+
+          const gableOrientation = topSourceFloor?.roof.orientation ?? 'north-south';
+          const gableFacingDirections: CardinalDirection[] =
+            gableOrientation === 'north-south' ? ['north', 'south'] : ['east', 'west'];
+          const isGableFace = isGableRoof && gableFacingDirections.includes(viewDirection);
 
           const lowHeightAbs = topFloorRaw ? topFloorRaw.base + topFloorRaw.height : 0;
           const ridgeRelative = topSourceFloor?.roof.ridgeHeight ?? topSourceFloor?.height ?? topFloorRaw?.height ?? 0;
@@ -140,6 +163,7 @@ export const ElevationViews: React.FC = () => {
               ...floor,
               svgPoints,
               roofLine,
+              roofSegments: [roofLine],
               sourceFloor,
               roofStrokeColor,
               roofDash
@@ -162,21 +186,162 @@ export const ElevationViews: React.FC = () => {
             const wallStrokeWidth = topFloorData.sourceFloor?.style.strokeWidth ?? 2;
             const lowTopSvgY = mapHeightToSvg(lowHeightAbs, scaleY);
             const highTopSvgY = mapHeightToSvg(highHeightAbs, scaleY);
+            const wallLeftXBase = topFloorData.roofLine[0].x;
+            const wallRightXBase = topFloorData.roofLine[1].x;
+            const wallTopYBase = topFloorData.roofLine[0].y;
+            const bottomLeftBase = topFloorData.svgPoints[0];
+            const bottomRightBase = topFloorData.svgPoints[1];
 
-            if (isFlatRoof) {
+            if (isGableRoof) {
+              const apexX = wallLeftXBase + (wallRightXBase - wallLeftXBase) / 2;
+              const slopeValue = Math.max(0, topSourceFloor.roof.slopeValue ?? 0);
+              let slopeRatio = 0;
+              if (isGableFace) {
+                const slopeAxis: Axis = gableOrientation === 'north-south' ? 'x' : 'y';
+                const roofSpanMm = computePlanSpan(topSourceFloor, slopeAxis);
+                const halfSlopeSpanMm = roofSpanMm > 0 ? roofSpanMm / 2 : 0;
+                const riseMm = Math.max(0, highHeightAbs - lowHeightAbs);
+                const derivedSlopeRatio = halfSlopeSpanMm > 0 ? riseMm / halfSlopeSpanMm : 0;
+                slopeRatio = slopeValue > 0 ? slopeValue / 10 : derivedSlopeRatio;
+              }
+              const leftDropPx = isGableFace ? leftOffset * slopeRatio * scaleY : 0;
+              const rightDropPx = isGableFace ? rightOffset * slopeRatio * scaleY : 0;
+              const roofLeftPoint: SvgPoint = {
+                x: wallLeftXBase - leftOffset * scaleX,
+                y: lowTopSvgY + leftDropPx
+              };
+              const roofRightPoint: SvgPoint = {
+                x: wallRightXBase + rightOffset * scaleX,
+                y: lowTopSvgY + rightDropPx
+              };
+
+              if (isGableFace) {
+                const apexPoint: SvgPoint = { x: apexX, y: highTopSvgY };
+                const slopeLeft = roofLeftPoint.x === apexPoint.x
+                  ? 0
+                  : (roofLeftPoint.y - apexPoint.y) / (roofLeftPoint.x - apexPoint.x);
+                const slopeRight = roofRightPoint.x === apexPoint.x
+                  ? 0
+                  : (roofRightPoint.y - apexPoint.y) / (roofRightPoint.x - apexPoint.x);
+                const wallApexLeftY = wallLeftXBase === apexPoint.x
+                  ? apexPoint.y
+                  : lowTopSvgY - (wallLeftXBase - apexPoint.x) * slopeLeft;
+                const wallApexRightY = wallRightXBase === apexPoint.x
+                  ? apexPoint.y
+                  : lowTopSvgY - (wallRightXBase - apexPoint.x) * slopeRight;
+                const wallApexY = Math.min(wallApexLeftY, wallApexRightY);
+                const wallApexPoint: SvgPoint = { x: apexX, y: wallApexY };
+                const wallOutline: SvgPoint[] = [
+                  bottomLeftBase ?? { x: wallLeftXBase, y: SVG_HEIGHT - MARGIN },
+                  bottomRightBase ?? { x: wallRightXBase, y: SVG_HEIGHT - MARGIN },
+                  { x: wallRightXBase, y: lowTopSvgY },
+                  wallApexPoint,
+                  { x: wallLeftXBase, y: lowTopSvgY }
+                ];
+                topFloorData.svgPoints = wallOutline;
+                topFloorData.roofSegments = [
+                  [apexPoint, roofLeftPoint],
+                  [apexPoint, roofRightPoint]
+                ];
+                topFloorData.roofLine = [roofLeftPoint, roofRightPoint];
+
+                if (leftOffset > 0) {
+                  roofOverlaySegments.push(
+                    <line
+                      key="gable-left-eave"
+                      data-testid="elevation-eave-line"
+                      x1={wallLeftXBase}
+                      y1={lowTopSvgY}
+                      x2={roofLeftPoint.x}
+                      y2={roofLeftPoint.y}
+                      stroke={stroke}
+                      strokeWidth={1.5}
+                      strokeDasharray={dash}
+                    />
+                  );
+                }
+
+                if (rightOffset > 0) {
+                  roofOverlaySegments.push(
+                    <line
+                      key="gable-right-eave"
+                      data-testid="elevation-eave-line"
+                      x1={wallRightXBase}
+                      y1={lowTopSvgY}
+                      x2={roofRightPoint.x}
+                      y2={roofRightPoint.y}
+                      stroke={stroke}
+                      strokeWidth={1.5}
+                      strokeDasharray={dash}
+                    />
+                  );
+                }
+              } else {
+                const ridgeLeftX = roofLeftPoint.x;
+                const ridgeRightX = roofRightPoint.x;
+                const ridgeTopY = highTopSvgY;
+                const ridgeSegment: [SvgPoint, SvgPoint] = [
+                  { x: ridgeLeftX, y: ridgeTopY },
+                  { x: ridgeRightX, y: ridgeTopY }
+                ];
+                const leftVertical: [SvgPoint, SvgPoint] = [
+                  { x: ridgeLeftX, y: ridgeTopY },
+                  { x: ridgeLeftX, y: lowTopSvgY }
+                ];
+                const rightVertical: [SvgPoint, SvgPoint] = [
+                  { x: ridgeRightX, y: ridgeTopY },
+                  { x: ridgeRightX, y: lowTopSvgY }
+                ];
+
+                topFloorData.roofSegments = [ridgeSegment];
+                if (ridgeTopY !== lowTopSvgY) {
+                  topFloorData.roofSegments = [ridgeSegment, leftVertical, rightVertical];
+                }
+                topFloorData.roofLine = ridgeSegment;
+
+                if (leftOffset > 0) {
+                  roofOverlaySegments.push(
+                    <line
+                      key="gable-rect-left-eave"
+                      data-testid="elevation-eave-line"
+                      x1={wallLeftXBase}
+                      y1={lowTopSvgY}
+                      x2={roofLeftPoint.x}
+                      y2={roofLeftPoint.y}
+                      stroke={stroke}
+                      strokeWidth={1.5}
+                      strokeDasharray={dash}
+                    />
+                  );
+                }
+
+                if (rightOffset > 0) {
+                  roofOverlaySegments.push(
+                    <line
+                      key="gable-rect-right-eave"
+                      data-testid="elevation-eave-line"
+                      x1={wallRightXBase}
+                      y1={lowTopSvgY}
+                      x2={roofRightPoint.x}
+                      y2={roofRightPoint.y}
+                      stroke={stroke}
+                      strokeWidth={1.5}
+                      strokeDasharray={dash}
+                    />
+                  );
+                }
+              }
+            } else if (isFlatRoof) {
               const parapetHeight = Math.max(0, topSourceFloor.roof.parapetHeight ?? 0);
 
               if (parapetHeight > 0 || leftOffset > 0 || rightOffset > 0) {
-                const wallLeftX = topFloorData.roofLine[0].x;
-                const wallRightX = topFloorData.roofLine[1].x;
-                const wallTopY = topFloorData.roofLine[0].y;
-                const roofLeftX = wallLeftX - leftOffset * scaleX;
-                const roofRightX = wallRightX + rightOffset * scaleX;
-                const roofBottomY = wallTopY;
+                const roofLeftX = wallLeftXBase - leftOffset * scaleX;
+                const roofRightX = wallRightXBase + rightOffset * scaleX;
+                const roofBottomY = wallTopYBase;
                 const roofTopY = roofBottomY - parapetHeight * scaleY;
 
-                const leftVerticalX = parapetHeight > 0 ? (leftOffset > 0 ? roofLeftX : wallLeftX) : roofLeftX;
-                const rightVerticalX = parapetHeight > 0 ? (rightOffset > 0 ? roofRightX : wallRightX) : roofRightX;
+                const leftVerticalX = parapetHeight > 0 ? (leftOffset > 0 ? roofLeftX : wallLeftXBase) : roofLeftX;
+                const rightVerticalX = parapetHeight > 0 ? (rightOffset > 0 ? roofRightX : wallRightXBase) : roofRightX;
 
                 const outlinePoints: SvgPoint[] = [
                   { x: leftVerticalX, y: roofBottomY },
@@ -188,7 +353,7 @@ export const ElevationViews: React.FC = () => {
                 roofOverlaySegments.push(
                   <polyline
                     key="flat-roof-outline"
-                    data-testid="elevation-eave-line"
+                   
                     points={toSvgPoints(outlinePoints)}
                     fill="none"
                     stroke={stroke}
@@ -202,9 +367,10 @@ export const ElevationViews: React.FC = () => {
                     <line
                       key="flat-roof-bottom-left"
                       data-testid="elevation-eave-line"
+                      
                       x1={roofLeftX}
                       y1={roofBottomY}
-                      x2={wallLeftX}
+                      x2={wallLeftXBase}
                       y2={roofBottomY}
                       stroke={stroke}
                       strokeWidth={2}
@@ -218,7 +384,8 @@ export const ElevationViews: React.FC = () => {
                     <line
                       key="flat-roof-bottom-right"
                       data-testid="elevation-eave-line"
-                      x1={wallRightX}
+                      
+                      x1={wallRightXBase}
                       y1={roofBottomY}
                       x2={roofRightX}
                       y2={roofBottomY}
@@ -230,10 +397,10 @@ export const ElevationViews: React.FC = () => {
                 }
               }
             } else if (isMonoRoof) {
-              const bottomLeft = topFloorData.svgPoints[0];
-              const bottomRight = topFloorData.svgPoints[1];
-              const wallLeftX = bottomLeft?.x ?? 0;
-              const wallRightX = bottomRight?.x ?? SVG_WIDTH - MARGIN;
+              const bottomLeft = bottomLeftBase;
+              const bottomRight = bottomRightBase;
+              const wallLeftX = bottomLeft?.x ?? wallLeftXBase;
+              const wallRightX = bottomRight?.x ?? wallRightXBase;
               let leftTopY = lowTopSvgY;
               let rightTopY = lowTopSvgY;
 
@@ -271,6 +438,7 @@ export const ElevationViews: React.FC = () => {
               const roofLeftPoint: SvgPoint = { x: eaveLeftX, y: roofLeftY };
               const roofRightPoint: SvgPoint = { x: eaveRightX, y: roofRightY };
               topFloorData.roofLine = [roofLeftPoint, roofRightPoint];
+              topFloorData.roofSegments = [[roofLeftPoint, roofRightPoint]];
 
               const eaveThicknessPx = Math.max(4, Math.min(14, 6 + scaleY * 6));
 
@@ -332,12 +500,13 @@ export const ElevationViews: React.FC = () => {
                     />
                   );
                   if (leftOffset > 0) {
-                    roofOverlaySegments.push(
-                      <line
-                        key="mono-low-bottom-left"
-                        x1={eaveLeftX}
-                        y1={lowTopSvgY}
-                        x2={wallLeftX}
+                  roofOverlaySegments.push(
+                    <line
+                      key="mono-low-bottom-left"
+                      data-testid="elevation-eave-line"
+                      x1={eaveLeftX}
+                      y1={lowTopSvgY}
+                      x2={wallLeftX}
                         y2={lowTopSvgY}
                         stroke={stroke}
                         strokeWidth={2}
@@ -349,6 +518,7 @@ export const ElevationViews: React.FC = () => {
                     roofOverlaySegments.push(
                       <line
                         key="mono-low-bottom-right"
+                        data-testid="elevation-eave-line"
                         x1={wallRightX}
                         y1={lowTopSvgY}
                         x2={eaveRightX}
@@ -360,15 +530,18 @@ export const ElevationViews: React.FC = () => {
                     );
                   }
 
-                  topFloorData.roofLine = [
+                  const ridgeSegment: [SvgPoint, SvgPoint] = [
                     { x: eaveLeftX, y: highTopSvgY },
                     { x: eaveRightX, y: highTopSvgY }
                   ];
+                  topFloorData.roofLine = ridgeSegment;
+                  topFloorData.roofSegments = [ridgeSegment];
                 } else if (isHighFace) {
                   if (leftOffset > 0) {
                     roofOverlaySegments.push(
                       <line
                         key="mono-high-overhang-left"
+                        data-testid="elevation-eave-line"
                         x1={eaveLeftX}
                         y1={highTopSvgY}
                         x2={wallLeftX}
@@ -383,6 +556,7 @@ export const ElevationViews: React.FC = () => {
                     roofOverlaySegments.push(
                       <line
                         key="mono-high-overhang-right"
+                        data-testid="elevation-eave-line"
                         x1={wallRightX}
                         y1={highTopSvgY}
                         x2={eaveRightX}
@@ -394,10 +568,12 @@ export const ElevationViews: React.FC = () => {
                     );
                   }
 
-                  topFloorData.roofLine = [
+                  const ridgeSegment: [SvgPoint, SvgPoint] = [
                     { x: wallLeftX, y: highTopSvgY },
                     { x: wallRightX, y: highTopSvgY }
                   ];
+                  topFloorData.roofLine = ridgeSegment;
+                  topFloorData.roofSegments = [ridgeSegment];
                 }
               } else if (isMonoPerpendicularFace) {
                 const polygonPoints: SvgPoint[] = [
@@ -417,6 +593,8 @@ export const ElevationViews: React.FC = () => {
                     strokeDasharray={dash}
                   />
                 );
+                topFloorData.roofSegments = [[roofLeftPoint, roofRightPoint]];
+                topFloorData.roofLine = [roofLeftPoint, roofRightPoint];
               }
             }
           }
@@ -454,6 +632,7 @@ export const ElevationViews: React.FC = () => {
                 />
                 {transformedFloors.map((floor) => {
                   const hideRoofLine = isFlatRoof && topFloorData?.floorId === floor.floorId;
+                  const roofSegments = hideRoofLine ? [] : floor.roofSegments;
                   return (
                     <g key={floor.floorId}>
                       <polyline
@@ -462,17 +641,18 @@ export const ElevationViews: React.FC = () => {
                         stroke={floor.color}
                         strokeWidth={2}
                       />
-                      {!hideRoofLine && (
+                      {roofSegments.map(([start, end], index) => (
                         <line
-                          x1={floor.roofLine[0].x}
-                          y1={floor.roofLine[0].y}
-                          x2={floor.roofLine[1].x}
-                          y2={floor.roofLine[1].y}
+                          key={`${floor.floorId}-roof-${index}`}
+                          x1={start.x}
+                          y1={start.y}
+                          x2={end.x}
+                          y2={end.y}
                           stroke={floor.roofStrokeColor}
                           strokeDasharray={dashPattern(floor.roofDash)}
                           strokeWidth={2}
                         />
-                      )}
+                      ))}
                     </g>
                   );
                 })}

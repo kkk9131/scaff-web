@@ -15,6 +15,8 @@ const StateProbe: React.FC = () => {
       <div data-testid="roof-slope">{activeFloor.roof.slopeValue}</div>
       <div data-testid="ridge-height">{activeFloor.roof.ridgeHeight}</div>
       <div data-testid="parapet-height">{activeFloor.roof.parapetHeight}</div>
+      <div data-testid="low-side">{activeFloor.roof.lowSideDirection}</div>
+      <div data-testid="ridge-orientation">{activeFloor.roof.orientation}</div>
       <div data-testid="eave-offset">{activeFloor.dimensions[2]?.offset}</div>
       <div data-testid="dimension-toggle">{ctx.state.modes.dimensionVisibleElevation ? 'on' : 'off'}</div>
     </div>
@@ -69,6 +71,33 @@ describe('RoofSidebarSection', () => {
     fireEvent.change(ridgeInput, { target: { value: '3800' } });
     fireEvent.blur(ridgeInput);
     expect(screen.getByTestId('ridge-height').textContent).toBe('3800');
+  });
+
+  it('allows selecting a gable roof orientation', () => {
+    renderComponent();
+
+    const gableButton = screen.getByRole('button', { name: /切妻/i });
+    fireEvent.click(gableButton);
+
+    expect(screen.getByTestId('ridge-orientation').textContent).toBe('north-south');
+
+    const eastWestButton = screen.getByRole('button', { name: /東・西/ });
+    fireEvent.click(eastWestButton);
+
+    expect(screen.getByTestId('ridge-orientation').textContent).toBe('east-west');
+  });
+
+  it('allows selecting a mono roof eave direction', () => {
+    renderComponent();
+
+    const monoButton = screen.getByRole('button', { name: /片流れ/ });
+    fireEvent.click(monoButton);
+
+    const eastButton = screen.getByRole('button', { name: '東面' });
+    fireEvent.click(eastButton);
+
+    expect(screen.getByTestId('roof-type').textContent).toBe('mono');
+    expect(screen.getByTestId('low-side').textContent).toBe('east');
   });
 
   it('applies eave offsets uniformly', () => {

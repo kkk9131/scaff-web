@@ -8,7 +8,15 @@ const createFloor = (polygon: Point[]): FloorModel => ({
   polygon,
   dimensions: polygon.map((point, index) => ({ edgeId: `edge-${index}`, length: 0, offset: 0 })),
   height: 3000,
-  roof: { type: 'flat', slopeValue: 0, ridgeHeight: 3000, parapetHeight: 0 },
+  // 軒先方向は平屋根でも保持する
+  roof: {
+    type: 'flat',
+    slopeValue: 0,
+    ridgeHeight: 3000,
+    parapetHeight: 0,
+    lowSideDirection: 'south',
+    orientation: 'north-south'
+  },
   style: {
     strokeColor: '#2563eb',
     roofStrokeColor: '#000000',

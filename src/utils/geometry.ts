@@ -78,7 +78,9 @@ const sanitizeRoof = (roof: RoofConfig): RoofConfig => {
   const lowSideDirection = directions.includes(roof.lowSideDirection)
     ? roof.lowSideDirection
     : 'south';
-  return { type, slopeValue, ridgeHeight, parapetHeight, lowSideDirection };
+  const orientations: RoofConfig['orientation'][] = ['north-south', 'east-west'];
+  const orientation = orientations.includes(roof.orientation) ? roof.orientation : 'north-south';
+  return { type, slopeValue, ridgeHeight, parapetHeight, lowSideDirection, orientation };
 };
 
 const boundingBox = (polygon: Point[]): BoundingBox => {
@@ -135,41 +137,67 @@ const buildElevationForDirection = (
   const useWidth = direction === 'north' || direction === 'south';
   let accumulatedHeight = 0;
   let totalHeight = 0;
-  let maxSpan = 0;
+  const globalAxis = floors.reduce(
+    (acc, floor) => {
+      floor.polygon.forEach((point) => {
+        const value = useWidth ? point.x : point.y;
+        acc.min = Math.min(acc.min, value);
+        acc.max = Math.max(acc.max, value);
+      });
+      return acc;
+    },
+    { min: Number.POSITIVE_INFINITY, max: Number.NEGATIVE_INFINITY }
+  );
+
+  const globalOrigin = Number.isFinite(globalAxis.min) ? globalAxis.min : 0;
+  const globalSpan = Number.isFinite(globalAxis.max) && Number.isFinite(globalAxis.min)
+    ? Math.max(0, globalAxis.max - globalAxis.min)
+    : 0;
 
   const outlines = floors.map((floor) => {
     const box = boundingBox(floor.polygon);
-    const span = useWidth ? box.maxX - box.minX : box.maxY - box.minY;
-    maxSpan = Math.max(maxSpan, span);
+    const floorMin = useWidth ? box.minX : box.minY;
+    const floorMax = useWidth ? box.maxX : box.maxY;
+    const span = Math.max(0, floorMax - floorMin);
+    const offsetStart = floorMin - globalOrigin;
+    const offsetEnd = offsetStart + span;
 
     const outline: Point[] = [
-      { x: 0, y: accumulatedHeight },
-      { x: span, y: accumulatedHeight },
-      { x: span, y: accumulatedHeight + floor.height },
-      { x: 0, y: accumulatedHeight + floor.height }
+      { x: offsetStart, y: accumulatedHeight },
+      { x: offsetEnd, y: accumulatedHeight },
+      { x: offsetEnd, y: accumulatedHeight + floor.height },
+      { x: offsetStart, y: accumulatedHeight + floor.height }
     ];
 
+    const roof = sanitizeRoof(floor.roof);
     const profile: ElevationOutline = {
       floorId: floor.id,
       outline,
       base: accumulatedHeight,
       height: floor.height,
-      roof: sanitizeRoof(floor.roof),
+      roof,
       color: floor.style.strokeColor
     };
 
+    const floorTopHeight = accumulatedHeight + floor.height;
+    const ridgeHeight = accumulatedHeight + Math.max(floor.height, roof.ridgeHeight);
+    totalHeight = Math.max(totalHeight, floorTopHeight, ridgeHeight);
+
     accumulatedHeight += floor.height;
-    totalHeight = accumulatedHeight;
     return profile;
   });
+
+  if (totalHeight === 0) {
+    totalHeight = accumulatedHeight;
+  }
 
   const topFloor = floors[floors.length - 1];
   const roofLabel = `10/${sanitizeRoof(topFloor.roof).slopeValue}`;
 
   return {
     direction,
-    dimensionLabel: createDimensionLabel(maxSpan),
-    dimensionValue: maxSpan,
+    dimensionLabel: createDimensionLabel(globalSpan),
+    dimensionValue: globalSpan,
     floors: outlines,
     roofLabel,
     totalHeight

@@ -1,4 +1,11 @@
-import { DEFAULT_DRAWING_MODES, validateBuildingModel, type BuildingModel, type DrawingModes } from '../context/BuildingProvider';
+import {
+  DEFAULT_DRAWING_MODES,
+  validateBuildingModel,
+  type BuildingModel,
+  type CardinalDirection,
+  type DrawingModes,
+  type RoofOrientation
+} from '../context/BuildingProvider';
 
 export const BUILDING_STORAGE_KEY = 'scaff-web:building-state';
 
@@ -69,6 +76,22 @@ const normalizeBuildingModel = (model: any): BuildingModel => {
         const type: 'flat' | 'mono' | 'gable' | 'hip' = ['flat', 'mono', 'gable', 'hip'].includes(rawType)
           ? (rawType as any)
           : 'flat';
+        const rawLowSide = typeof floor?.roof?.lowSideDirection === 'string'
+          ? (floor.roof.lowSideDirection as string)
+          : undefined;
+        const normalizedLowSide: CardinalDirection = ['north', 'south', 'east', 'west'].includes(
+          rawLowSide as CardinalDirection
+        )
+          ? (rawLowSide as CardinalDirection)
+          : 'south';
+        const rawOrientation = typeof floor?.roof?.orientation === 'string'
+          ? (floor.roof.orientation as string)
+          : undefined;
+        const normalizedOrientation: RoofOrientation = ['north-south', 'east-west'].includes(
+          rawOrientation as RoofOrientation
+        )
+          ? (rawOrientation as RoofOrientation)
+          : 'north-south';
 
         let normalizedSlope = Number.isFinite(slopeValue) && slopeValue >= 0 ? slopeValue : 0;
         let normalizedRidge = Number.isFinite(ridgeHeight) && ridgeHeight >= height
@@ -92,7 +115,9 @@ const normalizeBuildingModel = (model: any): BuildingModel => {
             type,
             slopeValue: normalizedSlope,
             ridgeHeight: normalizedRidge,
-            parapetHeight: normalizedParapet
+            parapetHeight: normalizedParapet,
+            lowSideDirection: normalizedLowSide,
+            orientation: normalizedOrientation
           }
         };
       })

@@ -137,18 +137,36 @@ const buildElevationForDirection = (
   const useWidth = direction === 'north' || direction === 'south';
   let accumulatedHeight = 0;
   let totalHeight = 0;
-  let maxSpan = 0;
+  const globalAxis = floors.reduce(
+    (acc, floor) => {
+      floor.polygon.forEach((point) => {
+        const value = useWidth ? point.x : point.y;
+        acc.min = Math.min(acc.min, value);
+        acc.max = Math.max(acc.max, value);
+      });
+      return acc;
+    },
+    { min: Number.POSITIVE_INFINITY, max: Number.NEGATIVE_INFINITY }
+  );
+
+  const globalOrigin = Number.isFinite(globalAxis.min) ? globalAxis.min : 0;
+  const globalSpan = Number.isFinite(globalAxis.max) && Number.isFinite(globalAxis.min)
+    ? Math.max(0, globalAxis.max - globalAxis.min)
+    : 0;
 
   const outlines = floors.map((floor) => {
     const box = boundingBox(floor.polygon);
-    const span = useWidth ? box.maxX - box.minX : box.maxY - box.minY;
-    maxSpan = Math.max(maxSpan, span);
+    const floorMin = useWidth ? box.minX : box.minY;
+    const floorMax = useWidth ? box.maxX : box.maxY;
+    const span = Math.max(0, floorMax - floorMin);
+    const offsetStart = floorMin - globalOrigin;
+    const offsetEnd = offsetStart + span;
 
     const outline: Point[] = [
-      { x: 0, y: accumulatedHeight },
-      { x: span, y: accumulatedHeight },
-      { x: span, y: accumulatedHeight + floor.height },
-      { x: 0, y: accumulatedHeight + floor.height }
+      { x: offsetStart, y: accumulatedHeight },
+      { x: offsetEnd, y: accumulatedHeight },
+      { x: offsetEnd, y: accumulatedHeight + floor.height },
+      { x: offsetStart, y: accumulatedHeight + floor.height }
     ];
 
     const roof = sanitizeRoof(floor.roof);
@@ -178,8 +196,8 @@ const buildElevationForDirection = (
 
   return {
     direction,
-    dimensionLabel: createDimensionLabel(maxSpan),
-    dimensionValue: maxSpan,
+    dimensionLabel: createDimensionLabel(globalSpan),
+    dimensionValue: globalSpan,
     floors: outlines,
     roofLabel,
     totalHeight

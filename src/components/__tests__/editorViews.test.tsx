@@ -239,6 +239,157 @@ describe('Editor views integration', () => {
     });
   });
 
+  it('updates gable elevation outlines when changing orientation', async () => {
+    const user = userEvent.setup();
+    renderEditor();
+
+    const gableButton = screen.getByRole('button', { name: /切妻/ });
+    await user.click(gableButton);
+
+    const northElevation = within(screen.getByTestId('elevation-north')).getByRole('img');
+    const eastElevation = within(screen.getByTestId('elevation-east')).getByRole('img');
+
+    const eaveButton = screen.getByRole('button', { name: '軒の出500mm' });
+    await user.click(eaveButton);
+
+    await waitFor(() => {
+      const lines = within(screen.getByTestId('elevation-north')).queryAllByTestId('elevation-eave-line');
+      expect(lines.length).toBeGreaterThan(0);
+    });
+
+    const slopeInput = screen.getByLabelText('勾配') as HTMLInputElement;
+    await user.clear(slopeInput);
+    await user.type(slopeInput, '5');
+    await user.tab();
+
+    await waitFor(() => {
+      const eaveLines = within(screen.getByTestId('elevation-north')).getAllByTestId('elevation-eave-line');
+      const allHorizontalNorth = eaveLines.every((line) => {
+        const y1 = Number(line.getAttribute('y1'));
+        const y2 = Number(line.getAttribute('y2'));
+        return Number.isFinite(y1) && Number.isFinite(y2) && Math.abs(y2 - y1) < 0.5;
+      });
+      expect(allHorizontalNorth).toBe(true);
+    });
+
+    await waitFor(() => {
+      const eastEaveLines = within(screen.getByTestId('elevation-east')).getAllByTestId('elevation-eave-line');
+      const allHorizontal = eastEaveLines.every((line) => {
+        const y1 = Number(line.getAttribute('y1'));
+        const y2 = Number(line.getAttribute('y2'));
+        return Number.isFinite(y1) && Number.isFinite(y2) && Math.abs(y2 - y1) < 0.5;
+      });
+      expect(allHorizontal).toBe(true);
+    });
+
+    const countPoints = (polyline: Element | null) => {
+      const points = polyline?.getAttribute('points');
+      if (!points) {
+        return 0;
+      }
+      return points
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean).length;
+    };
+
+    const northPolylineInitial = northElevation.querySelector('polyline');
+    expect(countPoints(northPolylineInitial)).toBeGreaterThan(5);
+
+    const eastWestButton = screen.getByRole('button', { name: /東・西/ });
+    await user.click(eastWestButton);
+
+    await waitFor(() => {
+      const northPolylineUpdated = northElevation.querySelector('polyline');
+      expect(countPoints(northPolylineUpdated)).toBeLessThanOrEqual(5);
+    });
+
+    await waitFor(() => {
+      const eastPolylineUpdated = eastElevation.querySelector('polyline');
+      expect(countPoints(eastPolylineUpdated)).toBeGreaterThan(5);
+    });
+  });
+
+  it('renders hip roof ridge and apex based on slope or highest height', async () => {
+    const user = userEvent.setup();
+    renderEditor();
+
+    const hipButton = screen.getByRole('button', { name: /寄棟/ });
+    await user.click(hipButton);
+
+    const eaveInput = screen.getByLabelText('軒の出') as HTMLInputElement;
+    await user.clear(eaveInput);
+    await user.type(eaveInput, '600');
+    await user.tab();
+
+    const northElevation = within(screen.getByTestId('elevation-north')).getByRole('img');
+    const eastElevation = within(screen.getByTestId('elevation-east')).getByRole('img');
+
+    await waitFor(() => {
+      expect(within(screen.getByTestId('elevation-north')).getAllByTestId('elevation-eave-line').length).toBeGreaterThan(0);
+    });
+
+    const readRidgeY = () => {
+      const lines = Array.from(northElevation.querySelectorAll('line'));
+      for (const line of lines) {
+        if (!line.getAttribute('stroke-dasharray')) {
+          continue;
+        }
+        const x1 = Number(line.getAttribute('x1'));
+        const x2 = Number(line.getAttribute('x2'));
+        const y1 = Number(line.getAttribute('y1'));
+        const y2 = Number(line.getAttribute('y2'));
+        if ([x1, x2, y1, y2].some((value) => Number.isNaN(value))) {
+          continue;
+        }
+        if (Math.abs(y1 - y2) < 0.5 && Math.abs(x1 - x2) > 5) {
+          return y1;
+        }
+      }
+      return null;
+    };
+
+    let initialRidgeY: number | null = null;
+    await waitFor(() => {
+      initialRidgeY = readRidgeY();
+      expect(initialRidgeY).not.toBeNull();
+    });
+
+    const slopeInput = screen.getByLabelText('勾配') as HTMLInputElement;
+    await user.clear(slopeInput);
+    await user.type(slopeInput, '5');
+    await user.tab();
+
+    await waitFor(() => {
+      const updatedRidgeY = readRidgeY();
+      expect(updatedRidgeY).not.toBeNull();
+      expect(initialRidgeY).not.toBeNull();
+      if (updatedRidgeY && initialRidgeY) {
+        expect(updatedRidgeY).toBeLessThan(initialRidgeY);
+      }
+    });
+
+    await waitFor(() => {
+      const dashed = Array.from(eastElevation.querySelectorAll('line')).filter((line) => line.getAttribute('stroke-dasharray'));
+      const hasHorizontal = dashed.some((line) => {
+        const y1 = Number(line.getAttribute('y1'));
+        const y2 = Number(line.getAttribute('y2'));
+        const x1 = Number(line.getAttribute('x1'));
+        const x2 = Number(line.getAttribute('x2'));
+        if ([x1, x2, y1, y2].some((value) => Number.isNaN(value))) {
+          return false;
+        }
+        return Math.abs(y1 - y2) < 0.5 && Math.abs(x1 - x2) > 5;
+      });
+      expect(hasHorizontal).toBe(true);
+    });
+
+    await waitFor(() => {
+      const eastEaves = within(screen.getByTestId('elevation-east')).getAllByTestId('elevation-eave-line');
+      expect(eastEaves.length).toBeGreaterThan(0);
+    });
+  });
+
   it('shows dimension lines only for the active floor when multiple floors exist', async () => {
     const user = userEvent.setup();
     renderEditor();

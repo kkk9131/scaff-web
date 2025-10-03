@@ -25,6 +25,8 @@ describe('Building model initialization', () => {
     expect(floor.roof.type).toBe('flat');
     expect(floor.roof.ridgeHeight).toBeGreaterThanOrEqual(floor.height);
     expect(floor.roof.parapetHeight).toBe(0);
+    expect(floor.roof.lowSideDirection).toBeDefined();
+    expect(floor.roof.orientation).toBeDefined();
   });
 
   it('initializes drawing modes and selection defaults', () => {
@@ -85,7 +87,14 @@ describe('Building model initialization', () => {
         { edgeId: 'edge-2', length: 0, offset: 0 }
       ],
       height: 0,
-      roof: { type: 'flat', slopeValue: 0, ridgeHeight: 2000, parapetHeight: 0 },
+      roof: {
+        type: 'flat',
+        slopeValue: 0,
+        ridgeHeight: 2000,
+        parapetHeight: 0,
+        lowSideDirection: 'south',
+        orientation: 'north-south'
+      },
       style: {
         strokeColor: '#000000',
         roofStrokeColor: '#000000',

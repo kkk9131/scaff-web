@@ -4,7 +4,9 @@ import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import {
   useBuildingState,
   type RoofType,
-  type BuildingStateValue
+  type CardinalDirection,
+  type BuildingStateValue,
+  type RoofOrientation
 } from '../../context/BuildingProvider';
 
 interface RoofTypeOption {
@@ -12,11 +14,34 @@ interface RoofTypeOption {
   label: string;
 }
 
+interface DirectionOption {
+  id: CardinalDirection;
+  label: string;
+}
+
+interface OrientationOption {
+  id: RoofOrientation;
+  label: string;
+  description: string;
+}
+
 const ROOF_TYPE_OPTIONS: RoofTypeOption[] = [
   { id: 'flat', label: 'フラット' },
   { id: 'mono', label: '片流れ' },
   { id: 'gable', label: '切妻' },
   { id: 'hip', label: '寄棟' }
+];
+
+const EAVE_DIRECTION_OPTIONS: DirectionOption[] = [
+  { id: 'north', label: '北面' },
+  { id: 'south', label: '南面' },
+  { id: 'east', label: '東面' },
+  { id: 'west', label: '西面' }
+];
+
+const GABLE_ORIENTATION_OPTIONS: OrientationOption[] = [
+  { id: 'north-south', label: 'N-S', description: '妻面：北・南' },
+  { id: 'east-west', label: 'W-E', description: '妻面：東・西' }
 ];
 
 const findActiveFloor = (state: BuildingStateValue['state']) =>
@@ -145,11 +170,33 @@ export const RoofSidebarSection: React.FC = () => {
     });
   }, [dispatch, state.modes.dimensionVisibleElevation]);
 
+  const handleSelectEaveDirection = useCallback(
+    (direction: CardinalDirection) => {
+      if (!activeFloor || isLocked || activeFloor.roof.lowSideDirection === direction) {
+        return;
+      }
+      dispatch({ type: 'updateRoof', floorId: activeFloor.id, roof: { lowSideDirection: direction } });
+    },
+    [activeFloor, dispatch, isLocked]
+  );
+
+  const handleSelectGableOrientation = useCallback(
+    (orientation: RoofOrientation) => {
+      if (!activeFloor || isLocked || activeFloor.roof.orientation === orientation) {
+        return;
+      }
+      dispatch({ type: 'updateRoof', floorId: activeFloor.id, roof: { orientation } });
+    },
+    [activeFloor, dispatch, isLocked]
+  );
+
   if (!activeFloor) {
     return null;
   }
 
   const isFlat = activeFloor.roof.type === 'flat';
+  const isMono = activeFloor.roof.type === 'mono';
+  const isGable = activeFloor.roof.type === 'gable';
 
   return (
     <section aria-label="屋根設定" className="space-y-4">
@@ -258,6 +305,64 @@ export const RoofSidebarSection: React.FC = () => {
             <span className="text-xs text-amber-400">{fieldErrors.eave}</span>
           )}
         </label>
+
+        {isGable && (
+          <div className="space-y-2">
+            <p className="text-xs text-slate-400">屋根向き</p>
+            <div className="grid grid-cols-2 gap-2">
+              {GABLE_ORIENTATION_OPTIONS.map((option) => {
+                const isActive = activeFloor.roof.orientation === option.id;
+                return (
+                  <button
+                    key={option.id}
+                    type="button"
+                    className={`rounded border px-3 py-2 text-sm transition-colors ${
+                      isActive
+                        ? 'border-blue-400 bg-blue-500/10 text-blue-200'
+                        : 'border-slate-600 bg-slate-800 text-slate-200 hover:bg-slate-700'
+                    } ${isLocked ? 'opacity-60 cursor-not-allowed' : ''}`}
+                    aria-pressed={isActive}
+                    aria-disabled={isLocked ? 'true' : 'false'}
+                    aria-label={`屋根向き ${option.description}`}
+                    disabled={isLocked}
+                    onClick={() => handleSelectGableOrientation(option.id)}
+                  >
+                    <span className="block text-base font-semibold leading-tight">{option.label}</span>
+                    <span className="block text-[11px] text-slate-400">{option.description}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {isMono && (
+          <div className="space-y-2">
+            <p className="text-xs text-slate-400">軒先方向</p>
+            <div className="grid grid-cols-2 gap-2">
+              {EAVE_DIRECTION_OPTIONS.map((option) => {
+                const isActive = activeFloor.roof.lowSideDirection === option.id;
+                return (
+                  <button
+                    key={option.id}
+                    type="button"
+                    className={`rounded border px-3 py-2 text-sm transition-colors ${
+                      isActive
+                        ? 'border-blue-400 bg-blue-500/10 text-blue-200'
+                        : 'border-slate-600 bg-slate-800 text-slate-200 hover:bg-slate-700'
+                    } ${isLocked ? 'opacity-60 cursor-not-allowed' : ''}`}
+                    aria-pressed={isActive}
+                    aria-disabled={isLocked ? 'true' : 'false'}
+                    disabled={isLocked}
+                    onClick={() => handleSelectEaveDirection(option.id)}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="pt-2 border-t border-slate-700">

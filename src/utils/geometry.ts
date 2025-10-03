@@ -78,7 +78,9 @@ const sanitizeRoof = (roof: RoofConfig): RoofConfig => {
   const lowSideDirection = directions.includes(roof.lowSideDirection)
     ? roof.lowSideDirection
     : 'south';
-  return { type, slopeValue, ridgeHeight, parapetHeight, lowSideDirection };
+  const orientations: RoofConfig['orientation'][] = ['north-south', 'east-west'];
+  const orientation = orientations.includes(roof.orientation) ? roof.orientation : 'north-south';
+  return { type, slopeValue, ridgeHeight, parapetHeight, lowSideDirection, orientation };
 };
 
 const boundingBox = (polygon: Point[]): BoundingBox => {
@@ -149,19 +151,27 @@ const buildElevationForDirection = (
       { x: 0, y: accumulatedHeight + floor.height }
     ];
 
+    const roof = sanitizeRoof(floor.roof);
     const profile: ElevationOutline = {
       floorId: floor.id,
       outline,
       base: accumulatedHeight,
       height: floor.height,
-      roof: sanitizeRoof(floor.roof),
+      roof,
       color: floor.style.strokeColor
     };
 
+    const floorTopHeight = accumulatedHeight + floor.height;
+    const ridgeHeight = accumulatedHeight + Math.max(floor.height, roof.ridgeHeight);
+    totalHeight = Math.max(totalHeight, floorTopHeight, ridgeHeight);
+
     accumulatedHeight += floor.height;
-    totalHeight = accumulatedHeight;
     return profile;
   });
+
+  if (totalHeight === 0) {
+    totalHeight = accumulatedHeight;
+  }
 
   const topFloor = floors[floors.length - 1];
   const roofLabel = `10/${sanitizeRoof(topFloor.roof).slopeValue}`;

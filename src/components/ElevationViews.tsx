@@ -120,6 +120,7 @@ export const ElevationViews: React.FC = () => {
           const isFlatRoof = topSourceFloor?.roof.type === 'flat';
           const isMonoRoof = topSourceFloor?.roof.type === 'mono';
           const isGableRoof = topSourceFloor?.roof.type === 'gable';
+          const isHipRoof = topSourceFloor?.roof.type === 'hip';
           const viewDirection = view.direction as CardinalDirection;
           const eaveOffsets = topSourceFloor ? computeEaveOffsets(topSourceFloor, axis) : { negative: 0, positive: 0 };
           const leftOffsetMm = Math.max(0, eaveOffsets.negative);
@@ -135,10 +136,29 @@ export const ElevationViews: React.FC = () => {
           const gableFacingDirections: CardinalDirection[] =
             gableOrientation === 'north-south' ? ['north', 'south'] : ['east', 'west'];
           const isGableFace = isGableRoof && gableFacingDirections.includes(viewDirection);
+          const hipRidgeDirections: CardinalDirection[] = gableFacingDirections;
+          const isHipRidgeFace = isHipRoof && hipRidgeDirections.includes(viewDirection);
+          const isHipApexFace = isHipRoof && !isHipRidgeFace;
 
           const lowHeightAbs = topFloorRaw ? topFloorRaw.base + topFloorRaw.height : 0;
           const ridgeRelative = topSourceFloor?.roof.ridgeHeight ?? topSourceFloor?.height ?? topFloorRaw?.height ?? 0;
-          const highHeightAbs = topFloorRaw ? topFloorRaw.base + ridgeRelative : lowHeightAbs;
+          let highHeightAbs = topFloorRaw ? topFloorRaw.base + ridgeRelative : lowHeightAbs;
+          const perpendicularAxis: Axis = axis === 'x' ? 'y' : 'x';
+          const perpSpanMm = topSourceFloor ? computePlanSpan(topSourceFloor, perpendicularAxis) : 0;
+          const perpOffsets = topSourceFloor ? computeEaveOffsets(topSourceFloor, perpendicularAxis) : { negative: 0, positive: 0 };
+          const perpTotalSpanMm = perpSpanMm + Math.max(0, perpOffsets.negative) + Math.max(0, perpOffsets.positive);
+          const slopeValueGeneral = Math.max(0, topSourceFloor?.roof.slopeValue ?? 0);
+          let slopeRatioGeneral = slopeValueGeneral > 0 ? slopeValueGeneral / 10 : 0;
+          let riseMm = Math.max(0, highHeightAbs - lowHeightAbs);
+          if (perpTotalSpanMm > 0) {
+            const halfPerpSpan = perpTotalSpanMm / 2;
+            if (riseMm <= 0 && slopeRatioGeneral > 0) {
+              riseMm = slopeRatioGeneral * halfPerpSpan;
+              highHeightAbs = lowHeightAbs + riseMm;
+            } else if (slopeRatioGeneral <= 0 && riseMm > 0) {
+              slopeRatioGeneral = riseMm / halfPerpSpan;
+            }
+          }
 
           const lateralSides = VIEW_LATERAL_SIDES[view.direction];
 
@@ -194,25 +214,13 @@ export const ElevationViews: React.FC = () => {
 
             if (isGableRoof) {
               const apexX = wallLeftXBase + (wallRightXBase - wallLeftXBase) / 2;
-              const slopeValue = Math.max(0, topSourceFloor.roof.slopeValue ?? 0);
-              let slopeRatio = 0;
-              if (isGableFace) {
-                const slopeAxis: Axis = gableOrientation === 'north-south' ? 'x' : 'y';
-                const roofSpanMm = computePlanSpan(topSourceFloor, slopeAxis);
-                const halfSlopeSpanMm = roofSpanMm > 0 ? roofSpanMm / 2 : 0;
-                const riseMm = Math.max(0, highHeightAbs - lowHeightAbs);
-                const derivedSlopeRatio = halfSlopeSpanMm > 0 ? riseMm / halfSlopeSpanMm : 0;
-                slopeRatio = slopeValue > 0 ? slopeValue / 10 : derivedSlopeRatio;
-              }
-              const leftDropPx = isGableFace ? leftOffset * slopeRatio * scaleY : 0;
-              const rightDropPx = isGableFace ? rightOffset * slopeRatio * scaleY : 0;
               const roofLeftPoint: SvgPoint = {
                 x: wallLeftXBase - leftOffset * scaleX,
-                y: lowTopSvgY + leftDropPx
+                y: lowTopSvgY
               };
               const roofRightPoint: SvgPoint = {
                 x: wallRightXBase + rightOffset * scaleX,
-                y: lowTopSvgY + rightDropPx
+                y: lowTopSvgY
               };
 
               if (isGableFace) {
@@ -253,7 +261,7 @@ export const ElevationViews: React.FC = () => {
                       x1={wallLeftXBase}
                       y1={lowTopSvgY}
                       x2={roofLeftPoint.x}
-                      y2={roofLeftPoint.y}
+                      y2={lowTopSvgY}
                       stroke={stroke}
                       strokeWidth={1.5}
                       strokeDasharray={dash}
@@ -269,7 +277,7 @@ export const ElevationViews: React.FC = () => {
                       x1={wallRightXBase}
                       y1={lowTopSvgY}
                       x2={roofRightPoint.x}
-                      y2={roofRightPoint.y}
+                      y2={lowTopSvgY}
                       stroke={stroke}
                       strokeWidth={1.5}
                       strokeDasharray={dash}
@@ -307,7 +315,7 @@ export const ElevationViews: React.FC = () => {
                       x1={wallLeftXBase}
                       y1={lowTopSvgY}
                       x2={roofLeftPoint.x}
-                      y2={roofLeftPoint.y}
+                      y2={lowTopSvgY}
                       stroke={stroke}
                       strokeWidth={1.5}
                       strokeDasharray={dash}
@@ -323,7 +331,113 @@ export const ElevationViews: React.FC = () => {
                       x1={wallRightXBase}
                       y1={lowTopSvgY}
                       x2={roofRightPoint.x}
-                      y2={roofRightPoint.y}
+                      y2={lowTopSvgY}
+                      stroke={stroke}
+                      strokeWidth={1.5}
+                      strokeDasharray={dash}
+                    />
+                  );
+                }
+              }
+            } else if (isHipRoof) {
+              const slopeRatio = slopeRatioGeneral > 0 ? slopeRatioGeneral : riseMm > 0 && totalSpanMm > 0 ? riseMm / (totalSpanMm / 2) : 0;
+              const eaveLeftPoint: SvgPoint = {
+                x: wallLeftXBase - leftOffset * scaleX,
+                y: lowTopSvgY
+              };
+              const eaveRightPoint: SvgPoint = {
+                x: wallRightXBase + rightOffset * scaleX,
+                y: lowTopSvgY
+              };
+              const centerRunMm = totalSpanMm / 2;
+              const safeSlopeRatio = slopeRatio > 0 ? slopeRatio : riseMm > 0 && centerRunMm > 0 ? riseMm / centerRunMm : 0;
+              const runToEaveMm = safeSlopeRatio > 0 && riseMm > 0 ? Math.min(centerRunMm, riseMm / safeSlopeRatio) : centerRunMm;
+              const runToEavePx = runToEaveMm * scaleX;
+
+              const ridgeLeftPoint: SvgPoint = {
+                x: eaveLeftPoint.x + runToEavePx,
+                y: highTopSvgY
+              };
+              const ridgeRightPoint: SvgPoint = {
+                x: eaveRightPoint.x - runToEavePx,
+                y: highTopSvgY
+              };
+
+              const becamePyramid = ridgeRightPoint.x - ridgeLeftPoint.x <= 2;
+
+              if (isHipRidgeFace && !becamePyramid) {
+                topFloorData.roofSegments = [
+                  [ridgeLeftPoint, ridgeRightPoint],
+                  [ridgeLeftPoint, eaveLeftPoint],
+                  [ridgeRightPoint, eaveRightPoint]
+                ];
+                topFloorData.roofLine = [ridgeLeftPoint, ridgeRightPoint];
+
+                if (leftOffset > 0) {
+                  roofOverlaySegments.push(
+                    <line
+                      key="hip-ridge-left-eave"
+                      data-testid="elevation-eave-line"
+                      x1={wallLeftXBase}
+                      y1={lowTopSvgY}
+                      x2={eaveLeftPoint.x}
+                      y2={lowTopSvgY}
+                      stroke={stroke}
+                      strokeWidth={1.5}
+                      strokeDasharray={dash}
+                    />
+                  );
+                }
+
+                if (rightOffset > 0) {
+                  roofOverlaySegments.push(
+                    <line
+                      key="hip-ridge-right-eave"
+                      data-testid="elevation-eave-line"
+                      x1={wallRightXBase}
+                      y1={lowTopSvgY}
+                      x2={eaveRightPoint.x}
+                      y2={lowTopSvgY}
+                      stroke={stroke}
+                      strokeWidth={1.5}
+                      strokeDasharray={dash}
+                    />
+                  );
+                }
+              } else {
+                const apexX = wallLeftXBase + (wallRightXBase - wallLeftXBase) / 2;
+                const apexPoint: SvgPoint = { x: apexX, y: highTopSvgY };
+                topFloorData.roofSegments = [
+                  [apexPoint, eaveLeftPoint],
+                  [apexPoint, eaveRightPoint]
+                ];
+                topFloorData.roofLine = [eaveLeftPoint, eaveRightPoint];
+
+                if (leftOffset > 0) {
+                  roofOverlaySegments.push(
+                    <line
+                      key="hip-apex-left-eave"
+                      data-testid="elevation-eave-line"
+                      x1={wallLeftXBase}
+                      y1={lowTopSvgY}
+                      x2={eaveLeftPoint.x}
+                      y2={lowTopSvgY}
+                      stroke={stroke}
+                      strokeWidth={1.5}
+                      strokeDasharray={dash}
+                    />
+                  );
+                }
+
+                if (rightOffset > 0) {
+                  roofOverlaySegments.push(
+                    <line
+                      key="hip-apex-right-eave"
+                      data-testid="elevation-eave-line"
+                      x1={wallRightXBase}
+                      y1={lowTopSvgY}
+                      x2={eaveRightPoint.x}
+                      y2={lowTopSvgY}
                       stroke={stroke}
                       strokeWidth={1.5}
                       strokeDasharray={dash}

@@ -14,6 +14,8 @@ import { buildTemplateShape, getTemplateById } from '../modules/templates/catalo
 export type TemplateType = TemplateIdentifier;
 
 export type RoofType = 'flat' | 'mono' | 'gable' | 'hip';
+export type RoofOrientation = 'north-south' | 'east-west';
+export type CardinalDirection = 'north' | 'south' | 'east' | 'west';
 
 export interface EdgeDimension {
   edgeId: string;
@@ -26,6 +28,8 @@ export interface RoofConfig {
   slopeValue: number;
   ridgeHeight: number;
   parapetHeight: number;
+  lowSideDirection: CardinalDirection;
+  orientation: RoofOrientation;
 }
 
 export type DrawingModes = ConstraintState;
@@ -229,7 +233,9 @@ export const createInitialBuildingModel = (template: TemplateType): BuildingMode
       type: 'flat',
       slopeValue: DEFAULT_SLOPE,
       ridgeHeight: BASE_HEIGHT + DEFAULT_RIDGE_INCREMENT,
-      parapetHeight: DEFAULT_PARAPET_HEIGHT
+      parapetHeight: DEFAULT_PARAPET_HEIGHT,
+      lowSideDirection: 'south',
+      orientation: 'north-south'
     },
     style: generateFloorStyle(0),
     locked: false
@@ -300,6 +306,13 @@ export const validateBuildingModel = (model: BuildingModel): ValidationResult =>
         errors.push(`${floor.name} の屋根タイプが無効です。`);
       }
       if (
+        typeof floor.roof.slopeValue !== 'number' ||
+        Number.isNaN(floor.roof.slopeValue) ||
+        floor.roof.slopeValue < 0
+      ) {
+        errors.push(`${floor.name} の屋根勾配が正しくありません。`);
+      }
+      if (
         typeof floor.roof.ridgeHeight !== 'number' ||
         Number.isNaN(floor.roof.ridgeHeight) ||
         floor.roof.ridgeHeight < floor.height
@@ -312,6 +325,12 @@ export const validateBuildingModel = (model: BuildingModel): ValidationResult =>
         floor.roof.parapetHeight < 0
       ) {
         errors.push(`${floor.name} の立ち上がり高さが正しくありません。`);
+      }
+      if (!['north', 'south', 'east', 'west'].includes(floor.roof.lowSideDirection)) {
+        errors.push(`${floor.name} の屋根軒先方向が無効です。`);
+      }
+      if (!['north-south', 'east-west'].includes(floor.roof.orientation)) {
+        errors.push(`${floor.name} の屋根向きが無効です。`);
       }
     }
 
@@ -343,6 +362,48 @@ const recalculateFloor = (floor: FloorModel, polygon: Point[]): FloorModel => ({
   polygon,
   dimensions: createDimensions(floor.id, polygon)
 });
+
+interface FloorExtents {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+}
+
+const computeExtents = (polygon: Point[]): FloorExtents | null => {
+  if (!polygon.length) {
+    return null;
+  }
+  return polygon.reduce<FloorExtents>(
+    (acc, point) => ({
+      minX: Math.min(acc.minX, point.x),
+      maxX: Math.max(acc.maxX, point.x),
+      minY: Math.min(acc.minY, point.y),
+      maxY: Math.max(acc.maxY, point.y)
+    }),
+    {
+      minX: polygon[0].x,
+      maxX: polygon[0].x,
+      minY: polygon[0].y,
+      maxY: polygon[0].y
+    }
+  );
+};
+
+const spanAlongAxis = (extents: FloorExtents | null, axis: 'x' | 'y'): number => {
+  if (!extents) {
+    return 0;
+  }
+  return axis === 'x' ? Math.max(0, extents.maxX - extents.minX) : Math.max(0, extents.maxY - extents.minY);
+};
+
+const spanForMonoRoof = (floor: FloorModel, direction: CardinalDirection): number => {
+  const extents = computeExtents(floor.polygon);
+  const usesDepth = direction === 'north' || direction === 'south';
+  return spanAlongAxis(extents, usesDepth ? 'y' : 'x');
+};
+
+const roundToHalf = (value: number): number => Math.round(value * 2) / 2;
 
 const nextFloorId = (floors: FloorModel[]): string => {
   const suffix = floors.reduce((max, floor) => {
@@ -714,43 +775,89 @@ export const buildingReducer = (state: BuildingModel, action: BuildingAction): B
             return noChange(floor, '屋根タイプが無効です。');
           }
 
-          const rawSlope = roof.slopeValue !== undefined ? Number(roof.slopeValue) : floor.roof.slopeValue;
-          if (roof.slopeValue !== undefined && (!Number.isFinite(rawSlope) || rawSlope < 0)) {
+          const slopeProvided = roof.slopeValue !== undefined;
+          const ridgeProvided = roof.ridgeHeight !== undefined;
+          const parapetProvided = roof.parapetHeight !== undefined;
+          const directionProvided = roof.lowSideDirection !== undefined;
+          const orientationProvided = roof.orientation !== undefined;
+
+          const rawSlope = slopeProvided ? Number(roof.slopeValue) : floor.roof.slopeValue;
+          if (slopeProvided && (!Number.isFinite(rawSlope) || rawSlope < 0)) {
             return noChange(floor, '屋根勾配は0以上で指定してください。');
           }
 
-          const requestedSlope = Number.isFinite(rawSlope) ? rawSlope : floor.roof.slopeValue;
+          const rawRidge = ridgeProvided ? Number(roof.ridgeHeight) : floor.roof.ridgeHeight;
+          const rawParapet = parapetProvided ? Number(roof.parapetHeight) : floor.roof.parapetHeight;
 
-          const rawRidge =
-            roof.ridgeHeight !== undefined ? Number(roof.ridgeHeight) : floor.roof.ridgeHeight;
+          let lowSideDirection = floor.roof.lowSideDirection;
+          let orientation = floor.roof.orientation;
+          if (directionProvided) {
+            if (typeof roof.lowSideDirection !== 'string') {
+              return noChange(floor, '軒先方向が無効です。');
+            }
+            const normalized = roof.lowSideDirection as CardinalDirection;
+            if (!['north', 'south', 'east', 'west'].includes(normalized)) {
+              return noChange(floor, '軒先方向が無効です。');
+            }
+            lowSideDirection = normalized;
+          }
 
-          const rawParapet =
-            roof.parapetHeight !== undefined ? Number(roof.parapetHeight) : floor.roof.parapetHeight;
+          if (orientationProvided) {
+            if (typeof roof.orientation !== 'string') {
+              return noChange(floor, '屋根向きが無効です。');
+            }
+            const normalized = roof.orientation as RoofOrientation;
+            if (!['north-south', 'east-west'].includes(normalized)) {
+              return noChange(floor, '屋根向きが無効です。');
+            }
+            orientation = normalized;
+          }
 
-          if (roof.parapetHeight !== undefined && (!Number.isFinite(rawParapet) || rawParapet < 0)) {
+          if (parapetProvided && (!Number.isFinite(rawParapet) || rawParapet < 0)) {
             return noChange(floor, '立ち上がりは0以上で指定してください。');
           }
 
-          let slopeValue = Number.isFinite(requestedSlope) ? Math.max(0, requestedSlope) : 0;
+          const baseHeight = floor.height;
+          let slopeValue = Number.isFinite(rawSlope) ? Math.max(0, rawSlope) : 0;
           let ridgeHeight = Number.isFinite(rawRidge) ? rawRidge : floor.roof.ridgeHeight;
           let parapetHeight = Math.max(0, Number.isFinite(rawParapet) ? rawParapet : 0);
 
           if (nextType === 'flat') {
             slopeValue = 0;
-            const parapetTop = floor.height + parapetHeight;
-            ridgeHeight = Math.max(parapetTop, floor.height);
+            const parapetTop = baseHeight + parapetHeight;
+            ridgeHeight = Math.max(parapetTop, baseHeight);
           } else {
             parapetHeight = 0;
-            if (
-              roof.ridgeHeight !== undefined &&
-              (!Number.isFinite(rawRidge) || rawRidge < floor.height)
-            ) {
+            if (ridgeProvided && (!Number.isFinite(rawRidge) || rawRidge < baseHeight)) {
               return noChange(floor, '屋根最高高さは階高以上で指定してください。');
             }
             ridgeHeight = Number.isFinite(rawRidge) ? rawRidge : floor.roof.ridgeHeight;
-            if (!Number.isFinite(ridgeHeight) || ridgeHeight < floor.height) {
+            if (!Number.isFinite(ridgeHeight) || ridgeHeight < baseHeight) {
               return noChange(floor, '屋根最高高さは階高以上で指定してください。');
             }
+          }
+
+          if (nextType === 'mono') {
+            const span = spanForMonoRoof(floor, lowSideDirection);
+            const safeSpan = span > 0 ? span : 0;
+            const riseFromRidge = Math.max(0, ridgeHeight - baseHeight);
+
+            if (safeSpan === 0) {
+              slopeValue = 0;
+              ridgeHeight = baseHeight;
+            } else if (slopeProvided && !ridgeProvided) {
+              const rise = (safeSpan * slopeValue) / 10;
+              ridgeHeight = Math.max(baseHeight, baseHeight + rise);
+            } else if (!slopeProvided && ridgeProvided) {
+              const riseRatio = (ridgeHeight - baseHeight) * 10;
+              slopeValue = riseRatio > 0 ? riseRatio / safeSpan : 0;
+            } else if (!slopeProvided && !ridgeProvided && directionProvided) {
+              const riseRatio = riseFromRidge * 10;
+              slopeValue = riseRatio > 0 ? riseRatio / safeSpan : 0;
+            }
+
+            slopeValue = roundToHalf(Math.max(0, slopeValue));
+            ridgeHeight = Math.max(baseHeight, ridgeHeight);
           }
 
           if (!Number.isFinite(ridgeHeight)) {
@@ -761,14 +868,18 @@ export const buildingReducer = (state: BuildingModel, action: BuildingAction): B
             type: nextType,
             slopeValue,
             ridgeHeight,
-            parapetHeight
+            parapetHeight,
+            lowSideDirection,
+            orientation
           };
 
           if (
             nextRoof.type === floor.roof.type &&
             nextRoof.slopeValue === floor.roof.slopeValue &&
             nextRoof.ridgeHeight === floor.roof.ridgeHeight &&
-            nextRoof.parapetHeight === floor.roof.parapetHeight
+            nextRoof.parapetHeight === floor.roof.parapetHeight &&
+            nextRoof.lowSideDirection === floor.roof.lowSideDirection &&
+            nextRoof.orientation === floor.roof.orientation
           ) {
             return noChange(floor);
           }
@@ -813,10 +924,12 @@ export const buildingReducer = (state: BuildingModel, action: BuildingAction): B
         ? clonePolygon(sourceFloor.polygon)
         : clonePolygon(templateResolution.shape!.vertices);
       const roof = sourceFloor?.roof ?? {
-        type: 'flat',
+        type: 'flat' as RoofType,
         slopeValue: DEFAULT_SLOPE,
         ridgeHeight: BASE_HEIGHT + DEFAULT_RIDGE_INCREMENT,
-        parapetHeight: DEFAULT_PARAPET_HEIGHT
+        parapetHeight: DEFAULT_PARAPET_HEIGHT,
+        lowSideDirection: 'south' as CardinalDirection,
+        orientation: 'north-south' as RoofOrientation
       };
       const newFloor: FloorModel = {
         id: newId,

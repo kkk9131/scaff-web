@@ -30,6 +30,30 @@ interface TransformedElevationFloor extends ElevationOutline {
   roofDash: [number, number];
 }
 
+const VIEW_VECTORS: Record<ElevationDirection, { x: number; y: number }> = {
+  north: { x: 0, y: -1 },
+  south: { x: 0, y: 1 },
+  east: { x: 1, y: 0 },
+  west: { x: -1, y: 0 }
+};
+
+const polygonSignedArea = (points: Array<{ x: number; y: number }>): number => {
+  if (points.length < 3) {
+    return 0;
+  }
+
+  let area = 0;
+  for (let index = 0; index < points.length; index += 1) {
+    const current = points[index];
+    const next = points[(index + 1) % points.length];
+    area += current.x * next.y - next.x * current.y;
+  }
+
+  return area / 2;
+};
+
+const BREAK_EPSILON = 1e-3;
+
 const OPPOSITE_DIRECTION: Record<CardinalDirection, CardinalDirection> = {
   north: 'south',
   south: 'north',
@@ -101,6 +125,10 @@ const dashPattern = (dash?: [number, number]) => (dash ? dash.join(' ') : '6 4')
 export const ElevationViews: React.FC = () => {
   const { state } = useBuildingState();
   const result = React.useMemo(() => buildElevationData(state), [state]);
+  const floorLookup = React.useMemo(
+    () => new Map<string, FloorModel>(state.floors.map((floor) => [floor.id, floor])),
+    [state.floors]
+  );
 
   return (
     <section aria-label="Elevation views" className="h-full flex flex-col">
@@ -197,6 +225,94 @@ export const ElevationViews: React.FC = () => {
           const topFloorData = transformedFloors[transformedFloors.length - 1];
 
           const roofOverlaySegments: React.ReactNode[] = [];
+          const breakLines: React.ReactNode[] = [];
+          const viewVector2d = VIEW_VECTORS[view.direction];
+
+          view.floors.forEach((floor, index) => {
+            const sourceFloor = floorLookup.get(floor.floorId);
+            if (!sourceFloor || sourceFloor.polygon.length < 3) {
+              return;
+            }
+
+            const projectedValues = sourceFloor.polygon.map((point) => projectValue(point, axis));
+            if (!projectedValues.length) {
+              return;
+            }
+
+            const floorMin = Math.min(...projectedValues);
+            const floorMax = Math.max(...projectedValues);
+            if (floorMax - floorMin <= BREAK_EPSILON) {
+              return;
+            }
+
+            const polygonArea = polygonSignedArea(sourceFloor.polygon);
+            const orientationFactor = polygonArea >= 0 ? 1 : -1;
+
+            const candidateBreaks: number[] = [];
+            const pointCount = sourceFloor.polygon.length;
+
+            for (let vertexIndex = 0; vertexIndex < pointCount; vertexIndex += 1) {
+              const current = sourceFloor.polygon[vertexIndex];
+              const prev = sourceFloor.polygon[(vertexIndex - 1 + pointCount) % pointCount];
+              const next = sourceFloor.polygon[(vertexIndex + 1) % pointCount];
+
+              const prevEdge = { dx: current.x - prev.x, dy: current.y - prev.y };
+              const nextEdge = { dx: next.x - current.x, dy: next.y - current.y };
+
+              const prevNormal = orientationFactor >= 0
+                ? { x: prevEdge.dy, y: -prevEdge.dx }
+                : { x: -prevEdge.dy, y: prevEdge.dx };
+              const nextNormal = orientationFactor >= 0
+                ? { x: nextEdge.dy, y: -nextEdge.dx }
+                : { x: -nextEdge.dy, y: nextEdge.dx };
+
+              const facesView =
+                prevNormal.x * viewVector2d.x + prevNormal.y * viewVector2d.y > BREAK_EPSILON ||
+                nextNormal.x * viewVector2d.x + nextNormal.y * viewVector2d.y > BREAK_EPSILON;
+
+              if (facesView) {
+                candidateBreaks.push(projectValue(current, axis));
+              }
+            }
+
+            const filteredBreaks = candidateBreaks
+              .filter((value) => value > floorMin + BREAK_EPSILON && value < floorMax - BREAK_EPSILON)
+              .sort((a, b) => a - b);
+
+            const uniqueBreaks: number[] = [];
+            filteredBreaks.forEach((value) => {
+              if (!uniqueBreaks.some((existing) => Math.abs(existing - value) < BREAK_EPSILON)) {
+                uniqueBreaks.push(value);
+              }
+            });
+
+            if (!uniqueBreaks.length) {
+              return;
+            }
+
+            const floorGlobalOffset = floor.outline[0]?.x ?? 0;
+            const baseSvgY = mapHeightToSvg(floor.base, scaleY);
+            const topSvgY = mapHeightToSvg(floor.base + floor.height, scaleY);
+
+            uniqueBreaks.forEach((value, breakIndex) => {
+              const offsetWithinFloor = value - floorMin;
+              const globalCoordinate = floorGlobalOffset + offsetWithinFloor;
+              const x = MARGIN + (leftOffsetMm + globalCoordinate) * scaleX;
+
+              breakLines.push(
+                <line
+                  key={`${view.direction}-${floor.floorId}-break-${breakIndex}`}
+                  x1={x}
+                  y1={topSvgY}
+                  x2={x}
+                  y2={baseSvgY}
+                  stroke="#475569"
+                  strokeWidth={1.2}
+                  strokeDasharray="4 4"
+                />
+              );
+            });
+          });
 
           if (topFloorData && topSourceFloor) {
             const leftOffset = leftOffsetMm;
@@ -770,6 +886,7 @@ export const ElevationViews: React.FC = () => {
                     </g>
                   );
                 })}
+                {breakLines.length > 0 && <g data-testid="elevation-segmentation-lines">{breakLines}</g>}
                 {roofOverlaySegments.length > 0 && (
                   <g data-testid="elevation-roof-outline">{roofOverlaySegments}</g>
                 )}
